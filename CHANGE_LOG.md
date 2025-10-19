@@ -5,7 +5,16 @@ All notable changes to WinSCP Manager will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+---
+
+**Repository:** [https://github.com/Pandiyarajk/winscp_tools](https://github.com/Pandiyarajk/winscp_tools)  
+**Author:** Pandiyaraj Karuppasamy
+
+---
+
 ## [1.0.0] - 2025-10-19
+
+**Initial Release** - Complete feature set
 
 ### Added
 
@@ -246,4 +255,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-**Note:** This is the initial release of WinSCP Manager. Future versions will be documented here with detailed change tracking.
+## How to Report Issues
+
+Found a bug or have a feature request? Please:
+1. Check [existing issues](https://github.com/Pandiyarajk/winscp_tools/issues) first
+2. Create a [new issue](https://github.com/Pandiyarajk/winscp_tools/issues/new) with detailed information
+3. Include version number, OS, and steps to reproduce
+
+---
+
+**Note:** This is the initial release of WinSCP Manager. Future versions will be documented here with detailed change tracking following semantic versioning principles.
+
+---
+
+<div align="center">
+
+Copyright © 2025 [Pandiyaraj Karuppasamy](https://github.com/Pandiyarajk)  
+Licensed under the [MIT License](LICENSE)
+
+</div>
