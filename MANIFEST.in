@@ -1,0 +1,23 @@
+# Include documentation
+include README.md
+include CHANGE_LOG.md
+include LICENSE
+
+# Include configuration examples
+include example_config.ini
+
+# Include requirements
+include requirements.txt
+
+# Exclude unnecessary files
+exclude .gitignore
+exclude *.pyc
+exclude *.log
+exclude config.ini
+exclude scheduled_tasks.json
+
+# Exclude directories
+prune downloads
+prune temp
+prune __pycache__
+prune .git
