@@ -1,7 +1,14 @@
 #!/usr/bin/env python3
 """
 WinSCP Manager - Main Entry Point
-A comprehensive file transfer and scheduling application
+
+A comprehensive Python application for managing WinSCP/SFTP file operations 
+with advanced scheduling capabilities and dual interfaces (GUI and Console).
+
+Author: Pandiyaraj Karuppasamy
+Repository: https://github.com/Pandiyarajk/winscp_tools
+License: MIT
+Version: 1.0.0
 """
 
 import sys

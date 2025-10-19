@@ -2,6 +2,11 @@
 
 A comprehensive Python application for managing WinSCP/SFTP file operations with advanced scheduling capabilities and dual interfaces (GUI and Console).
 
+**Repository:** [https://github.com/Pandiyarajk/winscp_tools.git](https://github.com/Pandiyarajk/winscp_tools.git)  
+**Author:** Pandiyaraj Karuppasamy  
+**Version:** 1.0.0  
+**License:** MIT
+
 ## Features
 
 ### Core Functionality
@@ -39,7 +44,36 @@ A comprehensive Python application for managing WinSCP/SFTP file operations with
 
 ## Quick Start
 
-See [QUICK_START.md](QUICK_START.md) for a fast-track guide to get running in minutes!
+Get up and running in 3 easy steps:
+
+### Step 1: Install Dependencies
+```bash
+pip install -r requirements.txt
+```
+
+### Step 2: Configure Your Connection
+Edit `config.ini` with your server details:
+```ini
+[DEFAULT]
+protocol = sftp
+host = your-server.com
+port = 22
+username = your_username
+password = your_password
+```
+
+**Security Tip:** For production, use key-based authentication by setting `private_key_path` instead of password.
+
+### Step 3: Run the Application
+```bash
+# GUI Interface (Default)
+python main.py
+
+# Console Interface
+python main.py --console
+```
+
+That's it! You're ready to transfer files and schedule tasks.
 
 ## Installation
 
@@ -49,15 +83,41 @@ See [QUICK_START.md](QUICK_START.md) for a fast-track guide to get running in mi
 
 ### Setup
 
-1. **Clone or download this repository**
+#### Option 1: Standard Installation (Recommended)
+
+1. **Clone the repository**
 ```bash
-git clone <repository-url>
-cd winscp-manager
+git clone https://github.com/Pandiyarajk/winscp_tools.git
+cd winscp_tools
 ```
 
 2. **Install dependencies**
 ```bash
 pip install -r requirements.txt
+```
+
+#### Option 2: Development Installation
+
+For developers who want to contribute:
+
+```bash
+# Clone the repository
+git clone https://github.com/Pandiyarajk/winscp_tools.git
+cd winscp_tools
+
+# Install with development dependencies
+pip install -r requirements-dev.txt
+
+# Install in editable mode
+pip install -e .
+```
+
+#### Option 3: Package Installation
+
+Install as a Python package:
+
+```bash
+pip install git+https://github.com/Pandiyarajk/winscp_tools.git
 ```
 
 3. **Configure connection settings**
@@ -285,8 +345,8 @@ Schedule recurring deletion of old files:
 ## Project Structure
 
 ```
-winscp-manager/
-├── winscp_manager/
+winscp_tools/
+├── winscp_manager/           # Main package directory
 │   ├── __init__.py           # Package initialization
 │   ├── config_manager.py     # Configuration handling
 │   ├── winscp_handler.py     # SFTP operations
@@ -294,11 +354,16 @@ winscp-manager/
 │   ├── gui.py                # GUI interface
 │   └── console.py            # Console interface
 ├── main.py                   # Application entry point
-├── config.ini                # Configuration file
-├── requirements.txt          # Python dependencies
-├── README.md                 # This file
-├── CHANGE_LOG.md            # Version history
-└── LICENSE                   # License file
+├── setup.py                  # Package setup configuration
+├── MANIFEST.in               # Package manifest
+├── config.ini                # Configuration file (not in repo)
+├── example_config.ini        # Example configuration
+├── requirements.txt          # Production dependencies
+├── requirements-dev.txt      # Development dependencies
+├── README.md                 # Documentation
+├── CHANGE_LOG.md             # Version history
+├── LICENSE                   # MIT License
+└── .gitignore                # Git ignore rules
 ```
 
 ## Troubleshooting
@@ -351,22 +416,34 @@ See `requirements.txt` for complete list with versions.
 
 ## Contributing
 
-Contributions are welcome! Please feel free to submit issues or pull requests.
+Contributions are welcome! Please feel free to submit issues or pull requests on [GitHub](https://github.com/Pandiyarajk/winscp_tools.git).
 
 ## License
 
-See LICENSE file for details.
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
 ## Support
 
-For issues, questions, or contributions, please open an issue on the project repository.
+For issues, questions, or contributions:
+- Open an issue on [GitHub](https://github.com/Pandiyarajk/winscp_tools/issues)
+- Contact: Pandiyaraj Karuppasamy
 
-## Version
+## Version Information
 
-Current Version: **1.0.0**
+**Current Version:** 1.0.0  
+**Last Updated:** October 19, 2025  
+**Python:** 3.7+
 
-See [CHANGE_LOG.md](CHANGE_LOG.md) for version history and changes.
+See [CHANGE_LOG.md](CHANGE_LOG.md) for complete version history and changes.
 
 ---
 
+<div align="center">
+
 **Made with ❤️ for secure and automated file transfers**
+
+[GitHub](https://github.com/Pandiyarajk/winscp_tools) • [Report Bug](https://github.com/Pandiyarajk/winscp_tools/issues) • [Request Feature](https://github.com/Pandiyarajk/winscp_tools/issues)
+
+Copyright © 2025 [Pandiyaraj Karuppasamy](https://github.com/Pandiyarajk)
+
+</div>
