@@ -9,7 +9,6 @@ Repository: https://github.com/Pandiyarajk/winscp_tools
 
 __version__ = "1.0.0"
 __author__ = "Pandiyaraj Karuppasamy"
-__email__ = "pandiyarajk@gmail.com"
 __license__ = "MIT"
 __url__ = "https://github.com/Pandiyarajk/winscp_tools"
 

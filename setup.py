@@ -19,7 +19,6 @@ setup(
     name='winscp-manager',
     version='1.0.0',
     author='Pandiyaraj Karuppasamy',
-    author_email='pandiyarajk@gmail.com',
     description='A comprehensive Python application for managing WinSCP/SFTP file operations with scheduling',
     long_description=long_description,
     long_description_content_type='text/markdown',
