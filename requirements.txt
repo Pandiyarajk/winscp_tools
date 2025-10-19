@@ -1,16 +1,16 @@
-# WinSCP Manager Requirements
+# =============================================
+# WinSCP Manager - Requirements
 # Python 3.7+
+# Author: Pandiyaraj Karuppasamy
+# Repository: https://github.com/Pandiyarajk/winscp_tools
+# =============================================
 
-# Core dependencies
+# Core Dependencies (Required)
+# ----------------------------------------------
 paramiko>=3.3.1          # SSH/SFTP protocol implementation
-cryptography>=41.0.5     # Required by paramiko for cryptographic operations
+cryptography>=41.0.5     # Cryptographic operations for paramiko
 
-# Optional dependencies for enhanced functionality
-python-dateutil>=2.8.2   # Date handling utilities
-pytz>=2023.3             # Timezone support
-
-# Development dependencies (optional)
-pytest>=7.4.0            # Testing framework
-pytest-cov>=4.1.0        # Test coverage
-black>=23.7.0            # Code formatting
-flake8>=6.1.0            # Code linting
+# Optional Dependencies (Recommended)
+# ----------------------------------------------
+python-dateutil>=2.8.2   # Enhanced date handling utilities
+pytz>=2023.3             # Timezone support for scheduling
