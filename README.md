@@ -6,17 +6,17 @@
 > author is not liable for data loss, corruption, downtime or any other damage.
 > You are responsible for checking every target, keeping tested backups and being
 > authorised to change the servers you connect to. It is not certified for
-> regulated or safety-critical use. See [DISCLAIMER.md](DISCLAIMER.md); the
-> [LICENSE](LICENSE) is the governing text and prevails where the two differ.
+> regulated or safety-critical use. See [DISCLAIMER.md](https://github.com/Pandiyarajk/sftp-pilot/blob/main/DISCLAIMER.md); the
+> [LICENSE](https://github.com/Pandiyarajk/sftp-pilot/blob/main/LICENSE) is the governing text and prevails where the two differ.
 
 A Python SFTP client with a tkinter GUI, a console menu, and a persistent task
 scheduler for one-off or recurring uploads, downloads and deletes.
 
 It speaks SFTP directly through [paramiko](https://www.paramiko.org/), so it
 runs anywhere Python does. It was called WinSCP Manager (`winscp_tools`) up to
-version 1.1.0; see [CHANGE_LOG.md](CHANGE_LOG.md) for what moved.
+version 1.1.0; see [CHANGE_LOG.md](https://github.com/Pandiyarajk/sftp-pilot/blob/main/CHANGE_LOG.md) for what moved.
 
-**Version:** 2.0.1 · **Python:** 3.11+ · **License:** MIT
+**Version:** 2.0.2 · **Python:** 3.11+ · **License:** MIT
 
 ## Features
 
@@ -61,7 +61,7 @@ interface works without it.
 
 `config.ini` is git-ignored because it holds credentials. Start from
 `sftp-pilot --init-config` (the template is
-[sftp_pilot/example_config.ini](sftp_pilot/example_config.ini)):
+[sftp_pilot/example_config.ini](https://github.com/Pandiyarajk/sftp-pilot/blob/main/sftp_pilot/example_config.ini)):
 
 ```ini
 [DEFAULT]
@@ -198,4 +198,4 @@ tests/               pytest suite
 
 ## License
 
-MIT, see [LICENSE](LICENSE). Change history is in [CHANGE_LOG.md](CHANGE_LOG.md).
+MIT, see [LICENSE](https://github.com/Pandiyarajk/sftp-pilot/blob/main/LICENSE). Change history is in [CHANGE_LOG.md](https://github.com/Pandiyarajk/sftp-pilot/blob/main/CHANGE_LOG.md).
