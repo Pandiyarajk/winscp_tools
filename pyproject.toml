@@ -1,0 +1,54 @@
+# WinSCP Manager packaging
+# Author: Pandiyaraj Karuppasamy
+# Date: Oct-17-2026
+
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "winscp-manager"
+dynamic = ["version"]
+description = "SFTP file transfer manager with a GUI, a console menu and a persistent task scheduler"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Pandiyaraj Karuppasamy" }]
+keywords = ["sftp", "winscp", "file-transfer", "scheduler", "automation", "paramiko"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: System Administrators",
+    "Intended Audience :: Developers",
+    "Environment :: Console",
+    "Environment :: X11 Applications",
+    "Environment :: Win32 (MS Windows)",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: System :: Networking",
+    "Topic :: System :: Systems Administration",
+]
+dependencies = ["paramiko>=3.4"]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "asyncssh>=2.14"]
+
+[project.scripts]
+winscp-manager = "winscp_manager.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/Pandiyarajk/winscp_tools"
+Issues = "https://github.com/Pandiyarajk/winscp_tools/issues"
+Changelog = "https://github.com/Pandiyarajk/winscp_tools/blob/main/CHANGE_LOG.md"
+
+[tool.setuptools]
+packages = ["winscp_manager"]
+
+[tool.setuptools.dynamic]
+version = { attr = "winscp_manager.__version__" }
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
