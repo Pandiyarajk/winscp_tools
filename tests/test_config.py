@@ -1,0 +1,53 @@
+"""
+Configuration tests.
+
+Author: Pandiyaraj Karuppasamy
+Date: Oct-17-2026
+"""
+
+from pathlib import Path
+
+import pytest
+
+from winscp_manager.config_manager import PASSWORD_ENV, ConfigManager
+from winscp_manager.cli import main
+
+
+def write(tmp_path, body):
+    path = tmp_path / "config.ini"
+    path.write_text(body, encoding="utf-8")
+    return str(path)
+
+
+BASE = "[DEFAULT]\nhost = h\nusername = u\npassword = from-file\n"
+
+
+def test_env_password_overrides_file(tmp_path, monkeypatch):
+    cfg = ConfigManager(write(tmp_path, BASE))
+    assert cfg.get_connection_details()["password"] == "from-file"
+    monkeypatch.setenv(PASSWORD_ENV, "from-env")
+    assert cfg.get_connection_details()["password"] == "from-env"
+
+
+def test_defaults(tmp_path, monkeypatch):
+    monkeypatch.delenv(PASSWORD_ENV, raising=False)
+    conn = ConfigManager(write(tmp_path, BASE)).get_connection_details()
+    assert conn["port"] == 22 and conn["host_key_policy"] == "accept_new"
+
+
+@pytest.mark.parametrize("line", ["protocol = scp", "host_key_policy = yolo"])
+def test_unsupported_values_are_rejected(tmp_path, line):
+    with pytest.raises(ValueError):
+        ConfigManager(write(tmp_path, BASE + line + "\n")).get_connection_details()
+
+
+def test_example_config_parses():
+    example = Path(__file__).resolve().parent.parent / "example_config.ini"
+    ConfigManager(str(example)).get_connection_details()
+
+
+def test_cli_version(capsys):
+    with pytest.raises(SystemExit) as exc:
+        main(["--version"])
+    assert exc.value.code == 0
+    assert "WinSCP Manager" in capsys.readouterr().out

@@ -12,6 +12,59 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.1.0] - 2026-10-17
+
+Review fixes. Several 1.0.0 entries below described behaviour the code did not
+have; this release either implements it or says so.
+
+### Fixed
+- **Installed `winscp-manager` command crashed** with `ModuleNotFoundError: No
+  module named 'main'`; the entry point is now `winscp_manager.cli:main`.
+- **Host keys were never verified** (`AutoAddPolicy` accepted any server). The
+  default is now `accept_new`: remember a server on first connect, refuse it if
+  its key changes. `reject` and `auto_add` are available.
+- Key authentication only accepted RSA keys and had no passphrase support;
+  RSA, ECDSA and Ed25519 keys, encrypted or not, now work.
+- Scheduled tasks ignored `private_key_path` and connected with the password
+  only, and shared the GUI's SFTP connection across threads. Each run now opens
+  its own connection from the config file.
+- GUI worker threads updated widgets and opened dialogs directly, which Tk does
+  not support. All UI updates now go through the main thread. Connect and
+  delete no longer freeze the window.
+- Console: pressing Enter at "task ID to remove" removed the first task; IDs
+  now need four or more characters and must match exactly one task. Ctrl+C or
+  end of input no longer crash it.
+- A recurring task that failed once was never run again; it now keeps its
+  schedule and records the error.
+- A task running when the app closed stayed `running` forever; it is now
+  rescheduled on the next start.
+- `stop()` could take 10 seconds and tasks could be lost by concurrent saves;
+  the task file is now written atomically under a lock.
+- Progress callbacks divided by zero on empty files.
+- A failed download left a truncated file; downloads now go to `.part` first.
+- `config.ini` was committed despite being in `.gitignore`; it is untracked.
+
+### Changed
+- Python 3.11+ (3.7 to 3.10 are end of life). Packaging moved to
+  `pyproject.toml`; unused `python-dateutil` and `pytz` dependencies dropped.
+- `check_interval`, `enabled` and the `[LOGGING]` settings are now honoured.
+- `--config` and `--tasks-file` options; `python -m winscp_manager` works.
+- `WINSCP_MANAGER_PASSWORD` and `WINSCP_MANAGER_KEY_PASSPHRASE` environment
+  variables override the config file.
+- The `scp` protocol option was removed: it never existed (everything ran over
+  SFTP). `protocol` must be `sftp`.
+- The unused `temp_dir` setting was removed.
+
+### Added
+- Test suite, including integration tests against a local SFTP server.
+- Disclaimer in the README, `DISCLAIMER.md`, and a warning in `--help`.
+
+### Corrected claims from 1.0.0
+- There is no automatic reconnection and no resume of interrupted transfers.
+  Scheduled runs reconnect each time, which covers the unattended case.
+
+---
+
 ## [1.0.0] - 2025-10-19
 
 **Initial Release** - Complete feature set
