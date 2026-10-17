@@ -12,6 +12,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [2.0.2] - 2026-10-18
+
+### Fixed
+- README links to the licence, disclaimer, changelog and config template were
+  relative, so they were dead on the PyPI project page; they are absolute now.
+
+---
+
 ## [2.0.1] - 2026-10-18
 
 ### Added
