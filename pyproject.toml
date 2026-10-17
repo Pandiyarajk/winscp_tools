@@ -1,13 +1,14 @@
-# WinSCP Manager packaging
+# SFTP Pilot packaging
 # Author: Pandiyaraj Karuppasamy
 # Date: Oct-17-2026
+# Modified: Oct-18-2026
 
 [build-system]
 requires = ["setuptools>=69"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "winscp-manager"
+name = "sftp-pilot"
 dynamic = ["version"]
 description = "SFTP file transfer manager with a GUI, a console menu and a persistent task scheduler"
 readme = "README.md"
@@ -15,7 +16,7 @@ requires-python = ">=3.11"
 license = "MIT"
 license-files = ["LICENSE"]
 authors = [{ name = "Pandiyaraj Karuppasamy" }]
-keywords = ["sftp", "winscp", "file-transfer", "scheduler", "automation", "paramiko"]
+keywords = ["sftp", "file-transfer", "scheduler", "automation", "paramiko"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: System Administrators",
@@ -37,18 +38,18 @@ dependencies = ["paramiko>=3.4"]
 dev = ["pytest>=8", "asyncssh>=2.14"]
 
 [project.scripts]
-winscp-manager = "winscp_manager.cli:main"
+sftp-pilot = "sftp_pilot.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/Pandiyarajk/winscp_tools"
-Issues = "https://github.com/Pandiyarajk/winscp_tools/issues"
-Changelog = "https://github.com/Pandiyarajk/winscp_tools/blob/main/CHANGE_LOG.md"
+Homepage = "https://github.com/Pandiyarajk/sftp-pilot"
+Issues = "https://github.com/Pandiyarajk/sftp-pilot/issues"
+Changelog = "https://github.com/Pandiyarajk/sftp-pilot/blob/main/CHANGE_LOG.md"
 
 [tool.setuptools]
-packages = ["winscp_manager"]
+packages = ["sftp_pilot"]
 
 [tool.setuptools.dynamic]
-version = { attr = "winscp_manager.__version__" }
+version = { attr = "sftp_pilot.__version__" }
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

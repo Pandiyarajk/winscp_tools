@@ -1,9 +1,9 @@
 """
-Console Interface for WinSCP Manager
+Console Interface for SFTP Pilot
 
 Author: Pandiyaraj Karuppasamy
 Date: Oct-19-2025
-Modified: Oct-17-2026
+Modified: Oct-18-2026
 """
 
 import logging
@@ -14,7 +14,7 @@ from typing import Optional
 from .config_manager import ConfigManager
 from .runner import make_task_executor
 from .scheduler import ScheduledTask, TaskScheduler, TaskType
-from .winscp_handler import WinSCPHandler
+from .sftp_handler import SFTPHandler
 
 
 def _progress_printer(verb: str):
@@ -40,7 +40,7 @@ def _ask_int(prompt: str, default: int, minimum: int = 0) -> Optional[int]:
 
 
 class ConsoleInterface:
-    """Console-based interface for WinSCP Manager"""
+    """Console-based interface for SFTP Pilot"""
 
     def __init__(self, config_path: str = "config.ini", tasks_file: str = "scheduled_tasks.json"):
         """
@@ -53,7 +53,7 @@ class ConsoleInterface:
         self.config_path = config_path
         self.tasks_file = tasks_file
         self.config_manager: Optional[ConfigManager] = None
-        self.winscp_handler: Optional[WinSCPHandler] = None
+        self.sftp_handler: Optional[SFTPHandler] = None
         self.scheduler = TaskScheduler(tasks_file)
         self.running = True
         self.logger = logging.getLogger(__name__)
@@ -61,12 +61,12 @@ class ConsoleInterface:
     @property
     def connected(self) -> bool:
         """True while the interactive connection is alive"""
-        return bool(self.winscp_handler and self.winscp_handler.is_connected())
+        return bool(self.sftp_handler and self.sftp_handler.is_connected())
 
     def run(self):
         """Run the console interface"""
         print("=" * 60)
-        print("WinSCP Manager - Console Interface")
+        print("SFTP Pilot - Console Interface")
         print("=" * 60)
 
         try:
@@ -141,10 +141,10 @@ class ConsoleInterface:
             self.logger.error(f"Error: {e}")
             print(f"\nError: {e}")
 
-    def _require_connection(self) -> Optional[WinSCPHandler]:
-        if self.winscp_handler and self.winscp_handler.is_connected():
-            return self.winscp_handler
-        if self.winscp_handler:
+    def _require_connection(self) -> Optional[SFTPHandler]:
+        if self.sftp_handler and self.sftp_handler.is_connected():
+            return self.sftp_handler
+        if self.sftp_handler:
             print("\nFAILED: the connection was lost. Please connect again.")
         else:
             print("\nFAILED: not connected to server. Please connect first.")
@@ -163,20 +163,20 @@ class ConsoleInterface:
         conn_details = self.config_manager.get_connection_details()
         print(f"\nConnecting to {conn_details['host']}:{conn_details['port']}...")
 
-        self.winscp_handler = WinSCPHandler.from_config(conn_details)
-        if self.winscp_handler.connect():
+        self.sftp_handler = SFTPHandler.from_config(conn_details)
+        if self.sftp_handler.connect():
             print("OK: connected")
         else:
-            print(f"FAILED: {self.winscp_handler.last_error}")
+            print(f"FAILED: {self.sftp_handler.last_error}")
 
     def disconnect(self):
         """Disconnect from server"""
-        if not self.winscp_handler:
+        if not self.sftp_handler:
             print("\nNot connected to server")
             return
 
-        self.winscp_handler.disconnect()
-        self.winscp_handler = None
+        self.sftp_handler.disconnect()
+        self.sftp_handler = None
         print("\nOK: disconnected")
 
     def upload_file(self):
@@ -373,8 +373,8 @@ class ConsoleInterface:
         if self.scheduler.running:
             self.scheduler.stop()
 
-        if self.winscp_handler:
-            self.winscp_handler.disconnect()
+        if self.sftp_handler:
+            self.sftp_handler.disconnect()
 
         self.running = False
         print("Goodbye!")

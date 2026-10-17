@@ -3,14 +3,15 @@ Configuration tests.
 
 Author: Pandiyaraj Karuppasamy
 Date: Oct-17-2026
+Modified: Oct-18-2026
 """
 
 from pathlib import Path
 
 import pytest
 
-from winscp_manager.config_manager import PASSWORD_ENV, ConfigManager
-from winscp_manager.cli import main
+from sftp_pilot.config_manager import PASSWORD_ENV, ConfigManager
+from sftp_pilot.cli import main
 
 
 def write(tmp_path, body):
@@ -50,4 +51,4 @@ def test_cli_version(capsys):
     with pytest.raises(SystemExit) as exc:
         main(["--version"])
     assert exc.value.code == 0
-    assert "WinSCP Manager" in capsys.readouterr().out
+    assert "SFTP Pilot" in capsys.readouterr().out

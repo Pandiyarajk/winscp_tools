@@ -1,6 +1,6 @@
 # Disclaimer
 
-WinSCP Manager uploads, overwrites and deletes files on remote servers, and
+SFTP Pilot uploads, overwrites and deletes files on remote servers, and
 its scheduler does so unattended, repeatedly, at times you choose in advance.
 A wrong path or a wrong server can destroy data.
 
@@ -23,6 +23,6 @@ A wrong path or a wrong server can destroy data.
 This file is a plain-language summary. The [MIT License](LICENSE) is the
 governing text and prevails wherever the two differ.
 
-WinSCP is a trademark of its respective owner. This project is not affiliated
-with or endorsed by the WinSCP project and does not use WinSCP; it talks SFTP
-directly through [paramiko](https://www.paramiko.org/).
+SFTP Pilot is not affiliated with or endorsed by WinSCP or any other file
+transfer product; it talks SFTP directly through
+[paramiko](https://www.paramiko.org/).

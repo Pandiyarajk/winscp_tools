@@ -4,6 +4,7 @@ to a temporary folder). Skipped when asyncssh is not installed.
 
 Author: Pandiyaraj Karuppasamy
 Date: Oct-17-2026
+Modified: Oct-18-2026
 """
 
 import asyncio
@@ -15,9 +16,9 @@ import pytest
 
 asyncssh = pytest.importorskip("asyncssh")
 
-from winscp_manager.runner import make_task_executor  # noqa: E402
-from winscp_manager.scheduler import ScheduledTask, TaskScheduler, TaskStatus, TaskType  # noqa: E402
-from winscp_manager.winscp_handler import WinSCPHandler  # noqa: E402
+from sftp_pilot.runner import make_task_executor  # noqa: E402
+from sftp_pilot.scheduler import ScheduledTask, TaskScheduler, TaskStatus, TaskType  # noqa: E402
+from sftp_pilot.sftp_handler import SFTPHandler  # noqa: E402
 
 USER, PASSWORD = "tester", "s3cret"
 
@@ -92,7 +93,7 @@ def test_transfer_round_trip(remote, tmp_path):
     empty = tmp_path / "empty.txt"
     empty.write_bytes(b"")
 
-    h = WinSCPHandler.from_config(conn_for(remote, tmp_path))
+    h = SFTPHandler.from_config(conn_for(remote, tmp_path))
     assert h.connect(), h.last_error
     try:
         progress = []
@@ -122,7 +123,7 @@ def test_transfer_round_trip(remote, tmp_path):
 
 def test_accept_new_remembers_and_detects_a_changed_key(remote, tmp_path):
     conn = conn_for(remote, tmp_path)
-    h = WinSCPHandler.from_config(conn)
+    h = SFTPHandler.from_config(conn)
     assert h.connect(), h.last_error
     h.disconnect()
     known = (tmp_path / "known_hosts").read_text()
@@ -131,19 +132,19 @@ def test_accept_new_remembers_and_detects_a_changed_key(remote, tmp_path):
     # Same host:port, different key on record: must be refused.
     impostor = asyncssh.generate_private_key("ssh-ed25519").export_public_key().decode().split()[:2]
     (tmp_path / "known_hosts").write_text(f"[127.0.0.1]:{remote.port} {' '.join(impostor)}\n")
-    h = WinSCPHandler.from_config(conn)
+    h = SFTPHandler.from_config(conn)
     assert not h.connect()
     assert "does not match" in h.last_error
 
 
 def test_reject_policy_refuses_unknown_host(remote, tmp_path):
-    h = WinSCPHandler.from_config(conn_for(remote, tmp_path, host_key_policy="reject"))
+    h = SFTPHandler.from_config(conn_for(remote, tmp_path, host_key_policy="reject"))
     assert not h.connect()
     assert "not a known host" in h.last_error
 
 
 def test_wrong_password_reports_error(remote, tmp_path):
-    h = WinSCPHandler.from_config(conn_for(remote, tmp_path, password="nope"))
+    h = SFTPHandler.from_config(conn_for(remote, tmp_path, password="nope"))
     assert not h.connect()
     assert h.last_error
 
@@ -155,7 +156,7 @@ def test_encrypted_ed25519_key(tmp_path):
     root = tmp_path / "remote"
     root.mkdir()
     with SFTPServer(root, authorized_key=client_key.convert_to_public()) as server:
-        h = WinSCPHandler.from_config(conn_for(
+        h = SFTPHandler.from_config(conn_for(
             server, tmp_path, password="", private_key_path=str(key_file),
             private_key_passphrase="pw"))
         assert h.connect(), h.last_error

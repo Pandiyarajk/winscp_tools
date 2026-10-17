@@ -1,9 +1,9 @@
 """
-WinSCP Manager command-line entry point (installed as `winscp-manager`).
+SFTP Pilot command-line entry point (installed as `sftp-pilot`).
 
 Author: Pandiyaraj Karuppasamy
 Date: Oct-19-2025
-Modified: Oct-17-2026
+Modified: Oct-18-2026
 """
 
 import argparse
@@ -65,14 +65,14 @@ def main(argv: Optional[List[str]] = None) -> int:
         Process exit code
     """
     parser = argparse.ArgumentParser(
-        prog='winscp-manager',
-        description='WinSCP Manager - SFTP file transfer and scheduler',
+        prog='sftp-pilot',
+        description='SFTP Pilot - SFTP file transfer and scheduler',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=f"""
 Examples:
-  winscp-manager                      # GUI (default)
-  winscp-manager --console            # console menu
-  winscp-manager -c D:\\cfg\\prod.ini   # use another config file
+  sftp-pilot                      # GUI (default)
+  sftp-pilot --console            # console menu
+  sftp-pilot -c D:\\cfg\\prod.ini   # use another config file
 
 {WARNING}"""
     )
@@ -83,7 +83,7 @@ Examples:
                         help='Configuration file (default: config.ini in the current directory)')
     parser.add_argument('--tasks-file', default='scheduled_tasks.json',
                         help='Where scheduled tasks are stored (default: scheduled_tasks.json)')
-    parser.add_argument('--version', action='version', version=f'WinSCP Manager {__version__}')
+    parser.add_argument('--version', action='version', version=f'SFTP Pilot {__version__}')
 
     args = parser.parse_args(argv)
     setup_logging(args.config)

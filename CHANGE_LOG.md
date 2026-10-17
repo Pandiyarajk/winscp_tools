@@ -1,14 +1,37 @@
 # Change Log
 
-All notable changes to WinSCP Manager will be documented in this file.
+All notable changes to SFTP Pilot (formerly WinSCP Manager) are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
-**Repository:** [https://github.com/Pandiyarajk/winscp_tools](https://github.com/Pandiyarajk/winscp_tools)  
+**Repository:** [https://github.com/Pandiyarajk/sftp-pilot](https://github.com/Pandiyarajk/sftp-pilot)  
 **Author:** Pandiyaraj Karuppasamy
+
+---
+
+## [2.0.0] - 2026-10-18
+
+Renamed from **WinSCP Manager** to **SFTP Pilot**. The app never used WinSCP,
+and WinSCP is another project's name. Behaviour is unchanged from 1.1.0.
+
+### Changed (breaking)
+| Was | Now |
+| --- | --- |
+| repository `winscp_tools` | `sftp-pilot` (GitHub redirects the old URL) |
+| package `winscp_manager` | `sftp_pilot` |
+| command `winscp-manager` | `sftp-pilot` |
+| `python -m winscp_manager` | `python -m sftp_pilot` |
+| class `WinSCPHandler` (`winscp_handler.py`) | `SFTPHandler` (`sftp_handler.py`) |
+| env `WINSCP_MANAGER_PASSWORD` | `SFTP_PILOT_PASSWORD` |
+| env `WINSCP_MANAGER_KEY_PASSPHRASE` | `SFTP_PILOT_KEY_PASSPHRASE` |
+| default log file `winscp_manager.log` | `sftp_pilot.log` |
+
+`config.ini`, `known_hosts` and `scheduled_tasks.json` keep their names and
+format, so existing files carry over. If you set `log_file` explicitly, it is
+kept as written.
 
 ---
 
@@ -311,8 +334,8 @@ have; this release either implements it or says so.
 ## How to Report Issues
 
 Found a bug or have a feature request? Please:
-1. Check [existing issues](https://github.com/Pandiyarajk/winscp_tools/issues) first
-2. Create a [new issue](https://github.com/Pandiyarajk/winscp_tools/issues/new) with detailed information
+1. Check [existing issues](https://github.com/Pandiyarajk/sftp-pilot/issues) first
+2. Create a [new issue](https://github.com/Pandiyarajk/sftp-pilot/issues/new) with detailed information
 3. Include version number, OS, and steps to reproduce
 
 ---

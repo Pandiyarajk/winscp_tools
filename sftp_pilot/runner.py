@@ -7,23 +7,24 @@ does not support that) and would fail for good once that connection dropped.
 
 Author: Pandiyaraj Karuppasamy
 Date: Oct-17-2026
+Modified: Oct-18-2026
 """
 
 import logging
 from typing import Any, Callable, Dict
 
 from .scheduler import ScheduledTask, TaskType
-from .winscp_handler import WinSCPHandler
+from .sftp_handler import SFTPHandler
 
 logger = logging.getLogger(__name__)
 
 
-def run_task(handler: WinSCPHandler, task: ScheduledTask) -> bool:
+def run_task(handler: SFTPHandler, task: ScheduledTask) -> bool:
     """
     Perform one task on a connected handler
 
     Args:
-        handler: A connected WinSCPHandler
+        handler: A connected SFTPHandler
         task: The task to perform
 
     Returns:
@@ -40,7 +41,7 @@ def run_task(handler: WinSCPHandler, task: ScheduledTask) -> bool:
 
 def make_task_executor(
     get_connection_details: Callable[[], Dict[str, Any]],
-    handler_factory: Callable[[Dict[str, Any]], WinSCPHandler] = WinSCPHandler.from_config,
+    handler_factory: Callable[[Dict[str, Any]], SFTPHandler] = SFTPHandler.from_config,
 ) -> Callable[[ScheduledTask], bool]:
     """
     Build a scheduler executor that connects, runs one task and disconnects
