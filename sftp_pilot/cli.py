@@ -10,6 +10,7 @@ import argparse
 import logging
 import os
 import sys
+from importlib import resources
 from typing import List, Optional
 
 from . import __version__
@@ -54,6 +55,26 @@ def setup_logging(config_path: str) -> None:
         logging.getLogger("paramiko").setLevel(logging.WARNING)
 
 
+def init_config(config_path: str) -> int:
+    """
+    Write the bundled example configuration to config_path
+
+    Args:
+        config_path: Where to write it; an existing file is left untouched
+
+    Returns:
+        Process exit code (1 when the file already exists)
+    """
+    if os.path.exists(config_path):
+        print(f"{config_path} already exists; not overwriting it.", file=sys.stderr)
+        return 1
+    template = resources.files(__package__).joinpath('example_config.ini').read_text(encoding='utf-8')
+    with open(config_path, 'x', encoding='utf-8') as f:
+        f.write(template)
+    print(f"Wrote {os.path.abspath(config_path)}: fill in host, username and authentication.")
+    return 0
+
+
 def main(argv: Optional[List[str]] = None) -> int:
     """
     Parse arguments and start the chosen interface
@@ -72,6 +93,7 @@ def main(argv: Optional[List[str]] = None) -> int:
 Examples:
   sftp-pilot                      # GUI (default)
   sftp-pilot --console            # console menu
+  sftp-pilot --init-config          # write a starter config.ini
   sftp-pilot -c D:\\cfg\\prod.ini   # use another config file
 
 {WARNING}"""
@@ -79,6 +101,8 @@ Examples:
     group = parser.add_mutually_exclusive_group()
     group.add_argument('--gui', action='store_true', help='Run GUI interface (default)')
     group.add_argument('--console', action='store_true', help='Run console interface')
+    group.add_argument('--init-config', action='store_true',
+                       help='Write a starter configuration to --config (never overwrites) and exit')
     parser.add_argument('-c', '--config', default='config.ini',
                         help='Configuration file (default: config.ini in the current directory)')
     parser.add_argument('--tasks-file', default='scheduled_tasks.json',
@@ -86,6 +110,8 @@ Examples:
     parser.add_argument('--version', action='version', version=f'SFTP Pilot {__version__}')
 
     args = parser.parse_args(argv)
+    if args.init_config:
+        return init_config(args.config)
     setup_logging(args.config)
 
     if args.console:

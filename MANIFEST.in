@@ -2,7 +2,7 @@ include README.md
 include CHANGE_LOG.md
 include DISCLAIMER.md
 include LICENSE
-include example_config.ini
+include sftp_pilot/example_config.ini
 include requirements.txt
 recursive-include tests *.py
 

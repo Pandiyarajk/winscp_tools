@@ -48,6 +48,9 @@ Changelog = "https://github.com/Pandiyarajk/sftp-pilot/blob/main/CHANGE_LOG.md"
 [tool.setuptools]
 packages = ["sftp_pilot"]
 
+[tool.setuptools.package-data]
+sftp_pilot = ["example_config.ini"]
+
 [tool.setuptools.dynamic]
 version = { attr = "sftp_pilot.__version__" }
 
