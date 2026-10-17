@@ -1,23 +1,13 @@
-# Include documentation
 include README.md
 include CHANGE_LOG.md
+include DISCLAIMER.md
 include LICENSE
-
-# Include configuration examples
 include example_config.ini
-
-# Include requirements
 include requirements.txt
+recursive-include tests *.py
 
-# Exclude unnecessary files
-exclude .gitignore
-exclude *.pyc
-exclude *.log
 exclude config.ini
 exclude scheduled_tasks.json
-
-# Exclude directories
+exclude known_hosts
+global-exclude *.py[cod] *.log
 prune downloads
-prune temp
-prune __pycache__
-prune .git

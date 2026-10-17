@@ -1,69 +1,102 @@
 """
 Console Interface for WinSCP Manager
+
+Author: Pandiyaraj Karuppasamy
+Date: Oct-19-2025
+Modified: Oct-17-2026
 """
 
-import sys
-import os
 import logging
+import uuid
 from datetime import datetime, timedelta
 from typing import Optional
-import uuid
 
 from .config_manager import ConfigManager
+from .runner import make_task_executor
+from .scheduler import ScheduledTask, TaskScheduler, TaskType
 from .winscp_handler import WinSCPHandler
-from .scheduler import TaskScheduler, ScheduledTask, TaskType, TaskStatus
+
+
+def _progress_printer(verb: str):
+    def callback(done: int, total: int) -> None:
+        percent = (done / total * 100) if total else 100.0
+        print(f"\r{verb}: {percent:5.1f}% ({done}/{total} bytes)", end='', flush=True)
+    return callback
+
+
+def _ask_int(prompt: str, default: int, minimum: int = 0) -> Optional[int]:
+    raw = input(f"{prompt} [{default}]: ").strip()
+    if not raw:
+        return default
+    try:
+        value = int(raw)
+    except ValueError:
+        print(f"FAILED: '{raw}' is not a whole number")
+        return None
+    if value < minimum:
+        print(f"FAILED: must be at least {minimum}")
+        return None
+    return value
 
 
 class ConsoleInterface:
     """Console-based interface for WinSCP Manager"""
-    
-    def __init__(self):
-        """Initialize console interface"""
-        self.config_manager = None
-        self.winscp_handler = None
-        self.scheduler = None
-        self.connected = False
+
+    def __init__(self, config_path: str = "config.ini", tasks_file: str = "scheduled_tasks.json"):
+        """
+        Initialize console interface
+
+        Args:
+            config_path: Configuration file to read
+            tasks_file: Where scheduled tasks are stored
+        """
+        self.config_path = config_path
+        self.tasks_file = tasks_file
+        self.config_manager: Optional[ConfigManager] = None
+        self.winscp_handler: Optional[WinSCPHandler] = None
+        self.scheduler = TaskScheduler(tasks_file)
         self.running = True
-        
-        # Setup logging
-        logging.basicConfig(
-            level=logging.INFO,
-            format='%(asctime)s - %(levelname)s - %(message)s'
-        )
         self.logger = logging.getLogger(__name__)
-    
+
+    @property
+    def connected(self) -> bool:
+        """True while the interactive connection is alive"""
+        return bool(self.winscp_handler and self.winscp_handler.is_connected())
+
     def run(self):
         """Run the console interface"""
         print("=" * 60)
         print("WinSCP Manager - Console Interface")
         print("=" * 60)
-        print()
-        
-        # Try to load config
+
         try:
-            self.config_manager = ConfigManager()
+            self.config_manager = ConfigManager(self.config_path)
             self.logger.info("Configuration loaded successfully")
         except Exception as e:
-            self.logger.error(f"Failed to load configuration: {str(e)}")
-            print("Warning: Could not load configuration file")
-        
-        # Initialize scheduler
+            self.logger.error(f"Failed to load configuration: {e}")
+            print(f"Warning: Could not load configuration file {self.config_path}")
+
+        if self.config_manager:
+            self.scheduler.check_interval = self.config_manager.get_scheduling_config()['check_interval']
+            self.scheduler.set_task_executor(
+                make_task_executor(self.config_manager.get_connection_details)
+            )
+
         try:
-            self.scheduler = TaskScheduler()
-            self.scheduler.set_task_executor(self.execute_scheduled_task)
-            self.logger.info("Scheduler initialized")
-        except Exception as e:
-            self.logger.error(f"Failed to initialize scheduler: {str(e)}")
-        
-        while self.running:
-            self.show_menu()
-            choice = input("\nEnter your choice: ").strip()
-            self.handle_choice(choice)
-    
+            while self.running:
+                self.show_menu()
+                choice = input("\nEnter your choice: ").strip()
+                self.handle_choice(choice)
+        except (KeyboardInterrupt, EOFError):
+            print()
+            self.exit_app()
+
     def show_menu(self):
         """Display main menu"""
+        state = "connected" if self.connected else "not connected"
+        sched = "running" if self.scheduler.running else "stopped"
         print("\n" + "=" * 60)
-        print("Main Menu")
+        print(f"Main Menu   (server: {state}, scheduler: {sched})")
         print("=" * 60)
         print("1. Connect to server")
         print("2. Disconnect from server")
@@ -78,7 +111,7 @@ class ConsoleInterface:
         print("11. Stop scheduler")
         print("12. Exit")
         print("=" * 60)
-    
+
     def handle_choice(self, choice: str):
         """Handle menu choice"""
         actions = {
@@ -95,319 +128,264 @@ class ConsoleInterface:
             '11': self.stop_scheduler,
             '12': self.exit_app
         }
-        
+
         action = actions.get(choice)
-        if action:
-            try:
-                action()
-            except Exception as e:
-                self.logger.error(f"Error: {str(e)}")
-                print(f"\nError: {str(e)}")
-        else:
+        if not action:
             print("\nInvalid choice. Please try again.")
-    
+            return
+        try:
+            action()
+        except (KeyboardInterrupt, EOFError):
+            raise
+        except Exception as e:
+            self.logger.error(f"Error: {e}")
+            print(f"\nError: {e}")
+
+    def _require_connection(self) -> Optional[WinSCPHandler]:
+        if self.winscp_handler and self.winscp_handler.is_connected():
+            return self.winscp_handler
+        if self.winscp_handler:
+            print("\nFAILED: the connection was lost. Please connect again.")
+        else:
+            print("\nFAILED: not connected to server. Please connect first.")
+        return None
+
     def connect(self):
         """Connect to server"""
         if self.connected:
             print("\nAlready connected to server")
             return
-        
+
         if not self.config_manager:
             print("\nConfiguration not loaded. Cannot connect.")
             return
-        
-        try:
-            conn_details = self.config_manager.get_connection_details()
-            
-            print(f"\nConnecting to {conn_details['host']}:{conn_details['port']}...")
-            
-            self.winscp_handler = WinSCPHandler(
-                host=conn_details['host'],
-                port=conn_details['port'],
-                username=conn_details['username'],
-                password=conn_details['password'],
-                private_key_path=conn_details['private_key_path'],
-                protocol=conn_details['protocol']
-            )
-            
-            if self.winscp_handler.connect():
-                self.connected = True
-                print("✓ Connected successfully!")
-            else:
-                print("✗ Connection failed")
-        except Exception as e:
-            print(f"✗ Connection error: {str(e)}")
-    
+
+        conn_details = self.config_manager.get_connection_details()
+        print(f"\nConnecting to {conn_details['host']}:{conn_details['port']}...")
+
+        self.winscp_handler = WinSCPHandler.from_config(conn_details)
+        if self.winscp_handler.connect():
+            print("OK: connected")
+        else:
+            print(f"FAILED: {self.winscp_handler.last_error}")
+
     def disconnect(self):
         """Disconnect from server"""
-        if not self.connected:
+        if not self.winscp_handler:
             print("\nNot connected to server")
             return
-        
+
         self.winscp_handler.disconnect()
-        self.connected = False
-        print("\n✓ Disconnected")
-    
+        self.winscp_handler = None
+        print("\nOK: disconnected")
+
     def upload_file(self):
         """Upload file to server"""
-        if not self.connected:
-            print("\n✗ Not connected to server. Please connect first.")
+        handler = self._require_connection()
+        if not handler:
             return
-        
-        local_path = input("\nEnter local file path: ").strip()
-        remote_path = input("Enter remote destination path: ").strip()
-        
+
+        local_path = input("\nEnter local file path: ").strip().strip('"')
+        default_dir = self.config_manager.get_paths()['remote_upload_dir'] if self.config_manager else ''
+        remote_path = input(f"Enter remote destination path (end with / for a folder) [{default_dir}]: ").strip()
+        remote_path = remote_path or default_dir
+
         if not local_path or not remote_path:
-            print("✗ Both paths are required")
+            print("FAILED: both paths are required")
             return
-        
+        if not remote_path.endswith('/') and remote_path == default_dir:
+            remote_path += '/'
+
         print(f"\nUploading {local_path} to {remote_path}...")
-        
-        def progress_callback(sent, total):
-            progress = (sent / total) * 100
-            print(f"\rProgress: {progress:.1f}% ({sent}/{total} bytes)", end='', flush=True)
-        
-        if self.winscp_handler.upload_file(local_path, remote_path, progress_callback):
-            print("\n✓ Upload completed successfully")
+        if handler.upload_file(local_path, remote_path, _progress_printer("Uploading")):
+            print("\nOK: upload completed")
         else:
-            print("\n✗ Upload failed")
-    
+            print("\nFAILED: upload failed (see log)")
+
     def download_file(self):
         """Download file from server"""
-        if not self.connected:
-            print("\n✗ Not connected to server. Please connect first.")
+        handler = self._require_connection()
+        if not handler:
             return
-        
+
         remote_path = input("\nEnter remote file path: ").strip()
-        local_path = input("Enter local destination path: ").strip()
-        
+        default_dir = self.config_manager.get_paths()['local_download_dir'] if self.config_manager else ''
+        local_path = input(f"Enter local destination (file or folder) [{default_dir}]: ").strip().strip('"')
+        local_path = local_path or default_dir
+
         if not remote_path or not local_path:
-            print("✗ Both paths are required")
+            print("FAILED: both paths are required")
             return
-        
+
         print(f"\nDownloading {remote_path} to {local_path}...")
-        
-        def progress_callback(received, total):
-            progress = (received / total) * 100
-            print(f"\rProgress: {progress:.1f}% ({received}/{total} bytes)", end='', flush=True)
-        
-        if self.winscp_handler.download_file(remote_path, local_path, progress_callback):
-            print("\n✓ Download completed successfully")
+        if handler.download_file(remote_path, local_path, _progress_printer("Downloading")):
+            print("\nOK: download completed")
         else:
-            print("\n✗ Download failed")
-    
+            print("\nFAILED: download failed (see log)")
+
     def delete_file(self):
         """Delete file from server"""
-        if not self.connected:
-            print("\n✗ Not connected to server. Please connect first.")
+        handler = self._require_connection()
+        if not handler:
             return
-        
+
         remote_path = input("\nEnter remote file path to delete: ").strip()
-        
+
         if not remote_path:
-            print("✗ Path is required")
+            print("FAILED: path is required")
             return
-        
-        confirm = input(f"Are you sure you want to delete {remote_path}? (yes/no): ").strip().lower()
-        
-        if confirm == 'yes':
-            if self.winscp_handler.delete_file(remote_path):
-                print("✓ File deleted successfully")
-            else:
-                print("✗ Delete failed")
-        else:
+
+        confirm = input(f"Permanently delete {remote_path} on the server? Type 'yes' to confirm: ").strip().lower()
+        if confirm != 'yes':
             print("Cancelled")
-    
+            return
+
+        if handler.delete_file(remote_path):
+            print("OK: file deleted")
+        else:
+            print("FAILED: delete failed (see log)")
+
     def list_files(self):
         """List files in remote directory"""
-        if not self.connected:
-            print("\n✗ Not connected to server. Please connect first.")
+        handler = self._require_connection()
+        if not handler:
             return
-        
-        remote_path = input("\nEnter remote directory path (default: /): ").strip() or "/"
-        
-        files = self.winscp_handler.list_files(remote_path)
-        
+
+        remote_path = input("\nEnter remote directory path [/]: ").strip() or "/"
+        files = handler.list_files(remote_path)
+
         if files:
             print(f"\nFiles in {remote_path}:")
             print("-" * 60)
-            for file in files:
-                print(f"  {file}")
+            for name in files:
+                print(f"  {name}")
             print("-" * 60)
         else:
             print("\nNo files found or error occurred")
-    
+
     def schedule_task(self):
         """Schedule a new task"""
-        if not self.scheduler:
-            print("\n✗ Scheduler not initialized")
-            return
-        
         print("\nSchedule New Task")
         print("-" * 60)
         print("Task Types: 1) Upload  2) Download  3) Delete")
         task_choice = input("Select task type (1-3): ").strip()
-        
-        task_type_map = {'1': TaskType.UPLOAD, '2': TaskType.DOWNLOAD, '3': TaskType.DELETE}
-        task_type = task_type_map.get(task_choice)
-        
+
+        task_type = {'1': TaskType.UPLOAD, '2': TaskType.DOWNLOAD, '3': TaskType.DELETE}.get(task_choice)
         if not task_type:
-            print("✗ Invalid task type")
+            print("FAILED: invalid task type")
             return
-        
-        source_path = input("Enter source path: ").strip()
+
+        label = "remote file to delete" if task_type == TaskType.DELETE else "source path"
+        source_path = input(f"Enter {label}: ").strip().strip('"')
         dest_path = ""
-        
-        if task_type in [TaskType.UPLOAD, TaskType.DOWNLOAD]:
-            dest_path = input("Enter destination path: ").strip()
-        
-        delay_minutes = int(input("Run in how many minutes? ").strip() or "5")
-        
-        recurring = input("Recurring task? (yes/no): ").strip().lower() == 'yes'
+        if task_type in (TaskType.UPLOAD, TaskType.DOWNLOAD):
+            dest_path = input("Enter destination path: ").strip().strip('"')
+
+        delay_minutes = _ask_int("Run in how many minutes?", 5)
+        if delay_minutes is None:
+            return
+
+        recurring = input("Recurring task? (yes/no) [no]: ").strip().lower() == 'yes'
         interval_minutes = 0
-        
         if recurring:
-            interval_minutes = int(input("Interval in minutes: ").strip() or "60")
-        
+            interval_minutes = _ask_int("Interval in minutes", 60, minimum=1)
+            if interval_minutes is None:
+                return
+
         task_id = str(uuid.uuid4())
         scheduled_time = datetime.now() + timedelta(minutes=delay_minutes)
-        
-        task = ScheduledTask(
-            task_id=task_id,
-            task_type=task_type,
-            source_path=source_path,
-            dest_path=dest_path,
-            scheduled_time=scheduled_time,
-            recurring=recurring,
-            interval_minutes=interval_minutes
-        )
-        
+        try:
+            task = ScheduledTask(task_id, task_type, source_path, dest_path,
+                                 scheduled_time, recurring, interval_minutes)
+        except ValueError as e:
+            print(f"FAILED: {e}")
+            return
+
         self.scheduler.add_task(task)
-        print(f"\n✓ Task scheduled successfully (ID: {task_id[:8]}...)")
-        print(f"  Will run at: {scheduled_time.strftime('%Y-%m-%d %H:%M:%S')}")
-    
+        print(f"\nOK: task scheduled (ID: {task_id[:8]})")
+        print(f"  Will run at: {scheduled_time:%Y-%m-%d %H:%M:%S}")
+        if not self.scheduler.running:
+            print("  The scheduler is stopped: start it (option 10) for the task to run.")
+
     def view_tasks(self):
         """View all scheduled tasks"""
-        if not self.scheduler:
-            print("\n✗ Scheduler not initialized")
-            return
-        
         tasks = self.scheduler.get_all_tasks()
-        
+
         if not tasks:
             print("\nNo scheduled tasks")
             return
-        
+
         print("\nScheduled Tasks")
         print("=" * 80)
-        
+
         for task in tasks:
             print(f"\nTask ID: {task.task_id}")
             print(f"Type: {task.task_type.value}")
             print(f"Source: {task.source_path}")
-            print(f"Destination: {task.dest_path if task.dest_path else 'N/A'}")
-            print(f"Next Run: {task.next_run.strftime('%Y-%m-%d %H:%M:%S') if task.next_run else 'N/A'}")
-            print(f"Status: {task.status.value}")
-            print(f"Recurring: {'Yes' if task.recurring else 'No'}")
-            if task.recurring:
-                print(f"Interval: {task.interval_minutes} minutes")
+            print(f"Destination: {task.dest_path or 'N/A'}")
+            print(f"Next Run: {task.next_run:%Y-%m-%d %H:%M:%S}" if task.next_run else "Next Run: N/A")
+            print(f"Status: {task.describe_status()}")
+            if task.error_message:
+                print(f"Last error: {task.error_message}")
+            print(f"Recurring: {'every %d minutes' % task.interval_minutes if task.recurring else 'No'}")
             print("-" * 80)
-    
+
     def remove_task(self):
         """Remove a scheduled task"""
-        if not self.scheduler:
-            print("\n✗ Scheduler not initialized")
+        task_id = input("\nEnter task ID to remove (at least the first 4 characters): ").strip()
+        task = self.scheduler.find_task(task_id)
+        if not task:
+            print("FAILED: no single task matches that ID")
             return
-        
-        task_id = input("\nEnter task ID to remove: ").strip()
-        
-        # Try to find task by full ID or partial ID
-        for task in self.scheduler.get_all_tasks():
-            if task.task_id == task_id or task.task_id.startswith(task_id):
-                if self.scheduler.remove_task(task.task_id):
-                    print(f"✓ Task {task.task_id[:8]}... removed")
-                else:
-                    print("✗ Failed to remove task")
-                return
-        
-        print("✗ Task not found")
-    
+        if self.scheduler.remove_task(task.task_id):
+            print(f"OK: task {task.task_id[:8]} removed")
+        else:
+            print("FAILED: could not remove task")
+
     def start_scheduler(self):
         """Start the scheduler"""
-        if not self.scheduler:
-            print("\n✗ Scheduler not initialized")
-            return
-        
         if self.scheduler.running:
             print("\nScheduler is already running")
             return
-        
+        if not self.config_manager:
+            print("\nFAILED: the scheduler needs a loaded configuration to connect")
+            return
+        if not self.config_manager.get_scheduling_config()['enabled']:
+            print("\nFAILED: scheduling is disabled ([SCHEDULING] enabled = false)")
+            return
+
         self.scheduler.start()
-        print("\n✓ Scheduler started")
-    
+        print("\nOK: scheduler started")
+
     def stop_scheduler(self):
         """Stop the scheduler"""
-        if not self.scheduler:
-            print("\n✗ Scheduler not initialized")
-            return
-        
         if not self.scheduler.running:
             print("\nScheduler is not running")
             return
-        
+
         self.scheduler.stop()
-        print("\n✓ Scheduler stopped")
-    
-    def execute_scheduled_task(self, task: ScheduledTask) -> bool:
-        """Execute a scheduled task"""
-        try:
-            # Ensure connection
-            if not self.connected:
-                self.logger.info("Attempting to connect for scheduled task...")
-                if not self.winscp_handler:
-                    conn_details = self.config_manager.get_connection_details()
-                    self.winscp_handler = WinSCPHandler(
-                        conn_details['host'],
-                        conn_details['port'],
-                        conn_details['username'],
-                        conn_details['password']
-                    )
-                
-                if not self.winscp_handler.connect():
-                    self.logger.error("Failed to connect for scheduled task")
-                    return False
-                self.connected = True
-            
-            # Execute task based on type
-            if task.task_type == TaskType.UPLOAD:
-                return self.winscp_handler.upload_file(task.source_path, task.dest_path)
-            elif task.task_type == TaskType.DOWNLOAD:
-                return self.winscp_handler.download_file(task.source_path, task.dest_path)
-            elif task.task_type == TaskType.DELETE:
-                return self.winscp_handler.delete_file(task.source_path)
-            
-            return False
-        except Exception as e:
-            self.logger.error(f"Task execution error: {str(e)}")
-            return False
-    
+        print("\nOK: scheduler stopped")
+
     def exit_app(self):
         """Exit the application"""
         print("\nExiting...")
-        
-        # Stop scheduler if running
-        if self.scheduler and self.scheduler.running:
+
+        if self.scheduler.running:
             self.scheduler.stop()
-        
-        # Disconnect if connected
-        if self.connected:
+
+        if self.winscp_handler:
             self.winscp_handler.disconnect()
-        
+
         self.running = False
         print("Goodbye!")
 
 
-def run_console():
-    """Run the console interface"""
-    console = ConsoleInterface()
-    console.run()
+def run_console(config_path: str = "config.ini", tasks_file: str = "scheduled_tasks.json"):
+    """
+    Run the console interface
+
+    Args:
+        config_path: Configuration file to read
+        tasks_file: Where scheduled tasks are stored
+    """
+    ConsoleInterface(config_path, tasks_file).run()

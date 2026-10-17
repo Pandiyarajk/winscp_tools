@@ -7,7 +7,6 @@ __pycache__/
 build/
 develop-eggs/
 dist/
-downloads/
 eggs/
 .eggs/
 lib/
@@ -19,8 +18,10 @@ wheels/
 *.egg-info/
 .installed.cfg
 *.egg
+.pytest_cache/
 
 # Virtual Environment
+.venv/
 venv/
 ENV/
 env/
@@ -32,13 +33,14 @@ env/
 *.swo
 *~
 
-# Application specific
+# Application specific: these hold credentials, host keys and local state
 config.ini
+known_hosts
 scheduled_tasks.json
+.tasks-*.json
+*.part
 *.log
 downloads/
-temp/
-__pycache__/
 
 # OS
 .DS_Store
@@ -47,3 +49,7 @@ Thumbs.db
 # Backup files
 *.bak
 *.backup
+
+# Temporary files
+SCRATCHPAD.md
+scratchpad/
