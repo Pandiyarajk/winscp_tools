@@ -1,10 +1,9 @@
 """
-SFTP protocol handler for file operations (paramiko based; WinSCP itself
-is not required or used).
+SFTP protocol handler for file operations (paramiko based).
 
 Author: Pandiyaraj Karuppasamy
 Date: Oct-19-2025
-Modified: Oct-17-2026
+Modified: Oct-18-2026
 """
 
 import logging
@@ -18,7 +17,7 @@ import paramiko
 ProgressCallback = Callable[[int, int], None]
 
 
-class WinSCPHandler:
+class SFTPHandler:
     """Handles SFTP operations against one server"""
 
     def __init__(self, host: str, port: int, username: str,
@@ -62,7 +61,7 @@ class WinSCPHandler:
         self.logger = logging.getLogger(__name__)
 
     @classmethod
-    def from_config(cls, conn: Dict[str, Any]) -> 'WinSCPHandler':
+    def from_config(cls, conn: Dict[str, Any]) -> 'SFTPHandler':
         """
         Build a handler from ConfigManager.get_connection_details() output
 

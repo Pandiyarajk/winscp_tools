@@ -1,4 +1,4 @@
-# WinSCP Manager
+# SFTP Pilot
 
 > **Disclaimer:** this tool uploads, overwrites and deletes files on remote
 > servers, including unattended through its scheduler. It is provided **AS IS**,
@@ -12,10 +12,11 @@
 A Python SFTP client with a tkinter GUI, a console menu, and a persistent task
 scheduler for one-off or recurring uploads, downloads and deletes.
 
-Despite the name it does not need or use WinSCP: it speaks SFTP directly
-through [paramiko](https://www.paramiko.org/), so it runs anywhere Python does.
+It speaks SFTP directly through [paramiko](https://www.paramiko.org/), so it
+runs anywhere Python does. It was called WinSCP Manager (`winscp_tools`) up to
+version 1.1.0; see [CHANGE_LOG.md](CHANGE_LOG.md) for what moved.
 
-**Version:** 1.1.0 · **Python:** 3.11+ · **License:** MIT
+**Version:** 2.0.0 · **Python:** 3.11+ · **License:** MIT
 
 ## Features
 
@@ -32,16 +33,16 @@ through [paramiko](https://www.paramiko.org/), so it runs anywhere Python does.
 ## Quick start
 
 ```bash
-git clone https://github.com/Pandiyarajk/winscp_tools.git
-cd winscp_tools
+git clone https://github.com/Pandiyarajk/sftp-pilot.git
+cd sftp-pilot
 pip install .
 cp example_config.ini config.ini     # then edit config.ini
-winscp-manager                       # GUI
-winscp-manager --console             # console menu
+sftp-pilot                       # GUI
+sftp-pilot --console             # console menu
 ```
 
 From a checkout without installing: `pip install -r requirements.txt`, then
-`python main.py` (or `python -m winscp_manager`).
+`python main.py` (or `python -m sftp_pilot`).
 
 Options:
 
@@ -82,16 +83,16 @@ enabled = true
 check_interval = 30
 
 [LOGGING]
-log_file = winscp_manager.log
+log_file = sftp_pilot.log
 log_level = INFO
 ```
 
 | Key | Meaning |
 | --- | --- |
 | `protocol` | Only `sftp` is supported |
-| `password` | Overridden by the `WINSCP_MANAGER_PASSWORD` environment variable |
+| `password` | Overridden by the `SFTP_PILOT_PASSWORD` environment variable |
 | `private_key_path` | Key file; when set, key authentication is used |
-| `private_key_passphrase` | Overridden by `WINSCP_MANAGER_KEY_PASSPHRASE` |
+| `private_key_passphrase` | Overridden by `SFTP_PILOT_KEY_PASSPHRASE` |
 | `host_key_policy` | `accept_new` (default): trust on first connect, refuse a changed key. `reject`: only hosts already known. `auto_add`: no checking, testing only |
 | `known_hosts_file` | Where accepted host keys are stored; `~/.ssh/known_hosts` is also read |
 | `timeout` | Seconds allowed for connect and authentication |
@@ -103,11 +104,11 @@ log_level = INFO
 ### Keeping the password out of the file
 
 ```powershell
-$env:WINSCP_MANAGER_PASSWORD = "..."     # PowerShell
+$env:SFTP_PILOT_PASSWORD = "..."     # PowerShell
 ```
 
 ```bash
-export WINSCP_MANAGER_PASSWORD='...'     # bash
+export SFTP_PILOT_PASSWORD='...'     # bash
 ```
 
 Key authentication is the better option for anything unattended.
@@ -172,10 +173,10 @@ they need no external server. They cover transfers, key authentication, host
 key changes and a scheduled run end to end.
 
 ```
-winscp_manager/
-  cli.py             command-line entry point (winscp-manager)
+sftp_pilot/
+  cli.py             command-line entry point (sftp-pilot)
   config_manager.py  config.ini reading, environment overrides
-  winscp_handler.py  SFTP connection and file operations
+  sftp_handler.py  SFTP connection and file operations
   scheduler.py       task model, persistence, scheduler thread
   runner.py          runs a task on its own connection
   gui.py             tkinter interface
@@ -196,6 +197,3 @@ tests/               pytest suite
 ## License
 
 MIT, see [LICENSE](LICENSE). Change history is in [CHANGE_LOG.md](CHANGE_LOG.md).
-
-WinSCP is a trademark of its respective owner; this project is not affiliated
-with it.

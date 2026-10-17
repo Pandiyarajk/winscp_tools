@@ -3,7 +3,7 @@ Task Scheduler for automated file operations
 
 Author: Pandiyaraj Karuppasamy
 Date: Oct-19-2025
-Modified: Oct-17-2026
+Modified: Oct-18-2026
 """
 
 import json
@@ -217,7 +217,7 @@ class TaskScheduler:
 
         self._stop_event.clear()
         self.scheduler_thread = threading.Thread(
-            target=self._scheduler_loop, name="winscp-scheduler", daemon=True
+            target=self._scheduler_loop, name="sftp-pilot-scheduler", daemon=True
         )
         self.scheduler_thread.start()
         self.logger.info("Scheduler started")

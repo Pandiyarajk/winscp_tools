@@ -1,21 +1,21 @@
 """
-Configuration Manager for WinSCP Manager credentials and settings.
+Configuration Manager for SFTP Pilot credentials and settings.
 
 Secrets can be kept out of the file: the environment variables
-WINSCP_MANAGER_PASSWORD and WINSCP_MANAGER_KEY_PASSPHRASE override the
+SFTP_PILOT_PASSWORD and SFTP_PILOT_KEY_PASSPHRASE override the
 `password` and `private_key_passphrase` keys when set.
 
 Author: Pandiyaraj Karuppasamy
 Date: Oct-19-2025
-Modified: Oct-17-2026
+Modified: Oct-18-2026
 """
 
 import configparser
 import os
 from typing import Any, Dict
 
-PASSWORD_ENV = "WINSCP_MANAGER_PASSWORD"
-PASSPHRASE_ENV = "WINSCP_MANAGER_KEY_PASSPHRASE"
+PASSWORD_ENV = "SFTP_PILOT_PASSWORD"
+PASSPHRASE_ENV = "SFTP_PILOT_KEY_PASSPHRASE"
 
 HOST_KEY_POLICIES = ("accept_new", "reject", "auto_add")
 
@@ -98,7 +98,7 @@ class ConfigManager:
     def get_logging_config(self) -> Dict[str, str]:
         """Get logging configuration"""
         return {
-            'log_file': self.config.get('LOGGING', 'log_file', fallback='winscp_manager.log'),
+            'log_file': self.config.get('LOGGING', 'log_file', fallback='sftp_pilot.log'),
             'log_level': self.config.get('LOGGING', 'log_level', fallback='INFO').upper(),
         }
 

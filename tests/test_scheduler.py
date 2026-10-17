@@ -3,6 +3,7 @@ Scheduler tests: persistence, recurrence, failure handling and stop latency.
 
 Author: Pandiyaraj Karuppasamy
 Date: Oct-17-2026
+Modified: Oct-18-2026
 """
 
 import json
@@ -11,7 +12,7 @@ from datetime import datetime, timedelta
 
 import pytest
 
-from winscp_manager.scheduler import ScheduledTask, TaskScheduler, TaskStatus, TaskType
+from sftp_pilot.scheduler import ScheduledTask, TaskScheduler, TaskStatus, TaskType
 
 
 def make_task(task_id="abcd1234-0000", **kw):

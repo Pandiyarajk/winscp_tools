@@ -1,6 +1,6 @@
-# WinSCP Manager development requirements (Python 3.11+)
+# SFTP Pilot development requirements (Python 3.11+)
 # Author: Pandiyaraj Karuppasamy
-# Modified: Oct-17-2026
+# Modified: Oct-18-2026
 -r requirements.txt
 pytest>=8
 # asyncssh provides the throwaway SFTP server the integration tests run against

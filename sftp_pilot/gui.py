@@ -1,12 +1,12 @@
 """
-GUI Interface for WinSCP Manager using tkinter
+GUI Interface for SFTP Pilot using tkinter
 
 Tk is single-threaded: worker threads never touch a widget. They post
 callables to `self._ui_queue`, which the main loop drains every 100 ms.
 
 Author: Pandiyaraj Karuppasamy
 Date: Oct-19-2025
-Modified: Oct-17-2026
+Modified: Oct-18-2026
 """
 
 import logging
@@ -21,13 +21,13 @@ from typing import Callable, Optional
 from .config_manager import ConfigManager
 from .runner import make_task_executor
 from .scheduler import ScheduledTask, TaskScheduler, TaskType
-from .winscp_handler import WinSCPHandler
+from .sftp_handler import SFTPHandler
 
 UI_POLL_MS = 100
 TASKS_REFRESH_MS = 5000
 
 
-class WinSCPManagerGUI:
+class SFTPPilotGUI:
     """Main GUI application"""
 
     def __init__(self, root: tk.Tk, config_path: str = "config.ini",
@@ -41,12 +41,12 @@ class WinSCPManagerGUI:
             tasks_file: Where scheduled tasks are stored
         """
         self.root = root
-        self.root.title("WinSCP Manager - File Transfer & Scheduler")
+        self.root.title("SFTP Pilot - File Transfer & Scheduler")
         self.root.geometry("1000x720")
 
         self.config_path = config_path
         self.config_manager: Optional[ConfigManager] = None
-        self.winscp_handler: Optional[WinSCPHandler] = None
+        self.sftp_handler: Optional[SFTPHandler] = None
         self.scheduler = TaskScheduler(tasks_file)
         self.busy = False
         self.logger = logging.getLogger(__name__)
@@ -79,9 +79,9 @@ class WinSCPManagerGUI:
 
     def _periodic_refresh(self) -> None:
         self.refresh_tasks()
-        if self.winscp_handler and not self.winscp_handler.is_connected():
+        if self.sftp_handler and not self.sftp_handler.is_connected():
             self.logger.warning("Connection lost")
-            self.winscp_handler = None
+            self.sftp_handler = None
             self._set_connected_state(False)
         self.root.after(TASKS_REFRESH_MS, self._periodic_refresh)
 
@@ -332,9 +332,9 @@ class WinSCPManagerGUI:
         self.disconnect_btn.config(state='normal' if connected else 'disabled')
         self.status_bar.config(text=text)
 
-    def _connected_handler(self) -> Optional[WinSCPHandler]:
-        if self.winscp_handler and self.winscp_handler.is_connected():
-            return self.winscp_handler
+    def _connected_handler(self) -> Optional[SFTPHandler]:
+        if self.sftp_handler and self.sftp_handler.is_connected():
+            return self.sftp_handler
         messagebox.showerror("Error", "Not connected to server")
         return None
 
@@ -388,13 +388,13 @@ class WinSCPManagerGUI:
             'private_key_path': self.key_entry.get().strip(),
             'private_key_passphrase': self.passphrase_entry.get(),
         })
-        handler = WinSCPHandler.from_config(conn)
+        handler = SFTPHandler.from_config(conn)
         self.connect_btn.config(state='disabled')
         self.status_bar.config(text=f"Connecting to {host}:{port}...")
 
         def work():
             if handler.connect():
-                self.winscp_handler = handler
+                self.sftp_handler = handler
                 self.ui(self._set_connected_state, True, f"Connected to {host}:{port}")
             else:
                 self.ui(self._set_connected_state, False)
@@ -404,9 +404,9 @@ class WinSCPManagerGUI:
 
     def disconnect(self):
         """Disconnect from server"""
-        if self.winscp_handler:
-            self.winscp_handler.disconnect()
-            self.winscp_handler = None
+        if self.sftp_handler:
+            self.sftp_handler.disconnect()
+            self.sftp_handler = None
         self._set_connected_state(False)
 
     def upload_file(self):
@@ -565,8 +565,8 @@ class WinSCPManagerGUI:
         """Stop background work and close the window"""
         if self.scheduler.running:
             self.scheduler.stop(timeout=2)
-        if self.winscp_handler:
-            self.winscp_handler.disconnect()
+        if self.sftp_handler:
+            self.sftp_handler.disconnect()
         logging.getLogger().removeHandler(self.text_handler)
         self.root.destroy()
 
@@ -574,7 +574,7 @@ class WinSCPManagerGUI:
 class TextHandler(logging.Handler):
     """Logging handler that forwards records to the GUI log pane via the UI queue"""
 
-    def __init__(self, app: WinSCPManagerGUI):
+    def __init__(self, app: SFTPPilotGUI):
         super().__init__()
         self.app = app
 
@@ -594,5 +594,5 @@ def run_gui(config_path: str = "config.ini", tasks_file: str = "scheduled_tasks.
         tasks_file: Where scheduled tasks are stored
     """
     root = tk.Tk()
-    WinSCPManagerGUI(root, config_path, tasks_file)
+    SFTPPilotGUI(root, config_path, tasks_file)
     root.mainloop()

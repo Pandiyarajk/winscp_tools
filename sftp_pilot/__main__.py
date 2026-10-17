@@ -1,8 +1,9 @@
 """
-Allows `python -m winscp_manager`.
+Allows `python -m sftp_pilot`.
 
 Author: Pandiyaraj Karuppasamy
 Date: Oct-17-2026
+Modified: Oct-18-2026
 """
 
 import sys

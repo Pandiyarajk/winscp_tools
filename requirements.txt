@@ -1,5 +1,5 @@
-# WinSCP Manager runtime requirements (Python 3.11+)
+# SFTP Pilot runtime requirements (Python 3.11+)
 # Author: Pandiyaraj Karuppasamy
-# Modified: Oct-17-2026
+# Modified: Oct-18-2026
 # The package metadata in pyproject.toml is the source of truth.
 paramiko>=3.4
