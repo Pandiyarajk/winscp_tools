@@ -43,8 +43,17 @@ def test_unsupported_values_are_rejected(tmp_path, line):
 
 
 def test_example_config_parses():
-    example = Path(__file__).resolve().parent.parent / "example_config.ini"
+    example = Path(__file__).resolve().parent.parent / "sftp_pilot" / "example_config.ini"
     ConfigManager(str(example)).get_connection_details()
+
+
+def test_init_config_writes_once(tmp_path):
+    target = tmp_path / "config.ini"
+    assert main(["--init-config", "-c", str(target)]) == 0
+    ConfigManager(str(target)).get_connection_details()
+    target.write_text("mine", encoding="utf-8")
+    assert main(["--init-config", "-c", str(target)]) == 1
+    assert target.read_text(encoding="utf-8") == "mine"
 
 
 def test_cli_version(capsys):

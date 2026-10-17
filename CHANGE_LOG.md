@@ -12,6 +12,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [2.0.1] - 2026-10-18
+
+### Added
+- `sftp-pilot --init-config` writes a starter `config.ini` (never overwrites).
+  The template now ships inside the package, so a `pip install sftp-pilot`
+  has one; before, it existed only in the source tree.
+
+### Changed
+- README quick start installs from PyPI.
+
+---
+
 ## [2.0.0] - 2026-10-18
 
 Renamed from **WinSCP Manager** to **SFTP Pilot**. The app never used WinSCP,

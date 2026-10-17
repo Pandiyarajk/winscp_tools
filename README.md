@@ -16,7 +16,7 @@ It speaks SFTP directly through [paramiko](https://www.paramiko.org/), so it
 runs anywhere Python does. It was called WinSCP Manager (`winscp_tools`) up to
 version 1.1.0; see [CHANGE_LOG.md](CHANGE_LOG.md) for what moved.
 
-**Version:** 2.0.0 · **Python:** 3.11+ · **License:** MIT
+**Version:** 2.0.1 · **Python:** 3.11+ · **License:** MIT
 
 ## Features
 
@@ -33,16 +33,16 @@ version 1.1.0; see [CHANGE_LOG.md](CHANGE_LOG.md) for what moved.
 ## Quick start
 
 ```bash
-git clone https://github.com/Pandiyarajk/sftp-pilot.git
-cd sftp-pilot
-pip install .
-cp example_config.ini config.ini     # then edit config.ini
-sftp-pilot                       # GUI
-sftp-pilot --console             # console menu
+pip install sftp-pilot
+sftp-pilot --init-config     # writes config.ini here; then edit it
+sftp-pilot                   # GUI
+sftp-pilot --console         # console menu
 ```
 
-From a checkout without installing: `pip install -r requirements.txt`, then
-`python main.py` (or `python -m sftp_pilot`).
+[PyPI](https://pypi.org/project/sftp-pilot/) · `python -m sftp_pilot` works too.
+
+From a source checkout: `pip install .`, or without installing
+`pip install -r requirements.txt` then `python main.py`.
 
 Options:
 
@@ -51,6 +51,7 @@ Options:
 | `--gui` / `--console` | Choose the interface (GUI is the default) |
 | `-c`, `--config PATH` | Configuration file (default `config.ini` in the current folder) |
 | `--tasks-file PATH` | Where scheduled tasks are saved (default `scheduled_tasks.json`) |
+| `--init-config` | Write a starter config to the `--config` path (never overwrites) |
 | `--version` | Print the version |
 
 On Linux the GUI needs tkinter (`sudo apt-get install python3-tk`); the console
@@ -59,7 +60,8 @@ interface works without it.
 ## Configuration
 
 `config.ini` is git-ignored because it holds credentials. Start from
-[example_config.ini](example_config.ini):
+`sftp-pilot --init-config` (the template is
+[sftp_pilot/example_config.ini](sftp_pilot/example_config.ini)):
 
 ```ini
 [DEFAULT]

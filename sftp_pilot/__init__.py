@@ -11,7 +11,7 @@ Modified: Oct-18-2026
 Repository: https://github.com/Pandiyarajk/sftp-pilot
 """
 
-__version__ = "2.0.0"
+__version__ = "2.0.1"
 __author__ = "Pandiyaraj Karuppasamy"
 __license__ = "MIT"
 __url__ = "https://github.com/Pandiyarajk/sftp-pilot"
