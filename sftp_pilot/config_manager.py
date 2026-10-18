@@ -1,9 +1,18 @@
 """
 Configuration Manager for SFTP Pilot credentials and settings.
 
-Secrets can be kept out of the file: the environment variables
-SFTP_PILOT_PASSWORD and SFTP_PILOT_KEY_PASSPHRASE override the
-`password` and `private_key_passphrase` keys when set.
+The [DEFAULT] section is the default server. More servers are `[server:<name>]`
+sections. A named server never inherits credentials: host, port, username,
+password, key path and passphrase must be written in its own section, so a
+server that only changes the host can not receive another server's password.
+Only non-secret settings (protocol, host_key_policy, known_hosts_file, timeout,
+atomic_uploads) fall back to [DEFAULT].
+
+Secrets can be kept out of the file. For the default server the environment
+variables SFTP_PILOT_PASSWORD and SFTP_PILOT_KEY_PASSPHRASE override
+`password` and `private_key_passphrase`; for `[server:prod]` the variables are
+SFTP_PILOT_PASSWORD_PROD and SFTP_PILOT_KEY_PASSPHRASE_PROD. A variable meant
+for one server is never used for another.
 
 Author: Pandiyaraj Karuppasamy
 Date: Oct-19-2025
@@ -12,12 +21,33 @@ Modified: Oct-18-2026
 
 import configparser
 import os
-from typing import Any, Dict
+import re
+from typing import Any, Dict, List
 
 PASSWORD_ENV = "SFTP_PILOT_PASSWORD"
 PASSPHRASE_ENV = "SFTP_PILOT_KEY_PASSPHRASE"
 
 HOST_KEY_POLICIES = ("accept_new", "ask", "reject", "auto_add")
+
+DEFAULT_SERVER = "default"
+SERVER_PREFIX = "server:"
+# Keys a named server may take from [DEFAULT]. Credentials and the address are not here.
+INHERITED = ("protocol", "host_key_policy", "known_hosts_file", "timeout", "atomic_uploads")
+
+
+def env_suffix(server: str) -> str:
+    """
+    Environment variable suffix for a server name
+
+    Args:
+        server: Server name ('' or 'default' for the default server)
+
+    Returns:
+        '' for the default server, otherwise '_<NAME>' with non-alphanumerics as '_'
+    """
+    if not server or server == DEFAULT_SERVER:
+        return ""
+    return "_" + re.sub(r"[^A-Z0-9]", "_", server.upper())
 
 
 class ConfigManager:
@@ -31,55 +61,129 @@ class ConfigManager:
             config_path: Path to the configuration file
         """
         self.config_path = config_path
-        self.config = configparser.ConfigParser()
+        # No section is the special "defaults for every section" one: [DEFAULT]
+        # is an ordinary section here, so nothing is inherited by accident.
+        self.config = configparser.ConfigParser(default_section="__sftp_pilot_no_defaults__")
         self.load_config()
 
     def load_config(self) -> None:
-        """Load configuration from file"""
+        """
+        Load configuration from file
+
+        Raises:
+            FileNotFoundError: If the file does not exist
+            ValueError: If a section name is not allowed
+        """
         if not os.path.exists(self.config_path):
             raise FileNotFoundError(f"Configuration file not found: {self.config_path}")
 
         self.config.read(self.config_path, encoding="utf-8")
+        if self.config.has_section(SERVER_PREFIX + DEFAULT_SERVER):
+            raise ValueError(f"[{SERVER_PREFIX}{DEFAULT_SERVER}] is not allowed: "
+                             f"the [DEFAULT] section is the default server")
 
-    def get_connection_details(self) -> Dict[str, Any]:
+    # ----- servers ------------------------------------------------------------
+
+    def server_names(self) -> List[str]:
         """
-        Get connection details from config, with secrets taken from the
-        environment when the matching variable is set.
+        Names of the configured servers, in file order
 
         Returns:
-            Dictionary containing connection parameters
+            'default' first when [DEFAULT] describes a server, then each [server:<name>]
+        """
+        names = []
+        if self.config.has_section("DEFAULT") and self.config.has_option("DEFAULT", "host"):
+            names.append(DEFAULT_SERVER)
+        names += [s[len(SERVER_PREFIX):] for s in self.config.sections()
+                  if s.startswith(SERVER_PREFIX) and len(s) > len(SERVER_PREFIX)]
+        return names
+
+    def _section_for(self, server: str) -> str:
+        """Section name for a server, or ValueError listing the choices"""
+        name = (server or "").strip() or DEFAULT_SERVER
+        names = self.server_names()
+        if name == DEFAULT_SERVER:
+            if DEFAULT_SERVER in names:
+                return "DEFAULT"
+            if names:
+                raise ValueError(f"The config has no default server ([DEFAULT] with a host). "
+                                 f"Choose one of: {', '.join(names)}")
+            raise ValueError("The config describes no server: add host and username to [DEFAULT]")
+        if name not in names:
+            raise ValueError(f"Unknown server '{name}'. Configured servers: {', '.join(names) or 'none'}")
+        return SERVER_PREFIX + name
+
+    def _opt(self, section: str, key: str, fallback: str = "") -> str:
+        """An option from its own section, or for INHERITED keys from [DEFAULT]"""
+        if self.config.has_option(section, key):
+            return self.config.get(section, key)
+        if section != "DEFAULT" and key in INHERITED and self.config.has_option("DEFAULT", key):
+            return self.config.get("DEFAULT", key)
+        return fallback
+
+    def _typed(self, section: str, key: str, fallback: Any, convert) -> Any:
+        raw = self._opt(section, key, "").strip()
+        if not raw:
+            return fallback
+        try:
+            return convert(raw)
+        except ValueError:
+            raise ValueError(f"[{section}] {key} = {raw!r} is not valid") from None
+
+    @staticmethod
+    def _bool(raw: str) -> bool:
+        states = configparser.ConfigParser.BOOLEAN_STATES
+        if raw.lower() not in states:
+            raise ValueError(raw)
+        return states[raw.lower()]
+
+    def get_connection_details(self, server: str = "") -> Dict[str, Any]:
+        """
+        Get connection details for a server, with secrets taken from the
+        environment when the matching variable is set.
+
+        Args:
+            server: Server name; '' or 'default' for the [DEFAULT] server
+
+        Returns:
+            Dictionary containing connection parameters (including 'server')
 
         Raises:
-            ValueError: If a setting has an unsupported value
+            ValueError: If the server is unknown or a setting is unsupported
         """
-        protocol = self.config.get('DEFAULT', 'protocol', fallback='sftp').strip().lower()
+        section = self._section_for(server)
+        name = DEFAULT_SERVER if section == "DEFAULT" else section[len(SERVER_PREFIX):]
+
+        protocol = self._opt(section, 'protocol', 'sftp').strip().lower()
         if protocol != 'sftp':
             raise ValueError(f"Unsupported protocol '{protocol}': only 'sftp' is supported")
 
-        policy = self.config.get('DEFAULT', 'host_key_policy', fallback='accept_new').strip().lower()
+        policy = self._opt(section, 'host_key_policy', 'accept_new').strip().lower()
         if policy not in HOST_KEY_POLICIES:
             raise ValueError(
                 f"Unsupported host_key_policy '{policy}': use one of {', '.join(HOST_KEY_POLICIES)}"
             )
 
+        for required in ('host', 'username'):
+            if not self.config.has_option(section, required):
+                raise ValueError(f"[{section}] needs '{required}'")
+
+        suffix = env_suffix(name)
         return {
+            'server': name,
             'protocol': protocol,
-            'host': self.config.get('DEFAULT', 'host'),
-            'port': self.config.getint('DEFAULT', 'port', fallback=22),
-            'username': self.config.get('DEFAULT', 'username'),
-            'password': os.environ.get(PASSWORD_ENV)
-            or self.config.get('DEFAULT', 'password', fallback=''),
-            'private_key_path': os.path.expanduser(
-                self.config.get('DEFAULT', 'private_key_path', fallback='')
-            ),
-            'private_key_passphrase': os.environ.get(PASSPHRASE_ENV)
-            or self.config.get('DEFAULT', 'private_key_passphrase', fallback=''),
+            'host': self.config.get(section, 'host'),
+            'port': self._typed(section, 'port', 22, int),
+            'username': self.config.get(section, 'username'),
+            'password': os.environ.get(PASSWORD_ENV + suffix)
+            or self.config.get(section, 'password', fallback=''),
+            'private_key_path': os.path.expanduser(self.config.get(section, 'private_key_path', fallback='')),
+            'private_key_passphrase': os.environ.get(PASSPHRASE_ENV + suffix)
+            or self.config.get(section, 'private_key_passphrase', fallback=''),
             'host_key_policy': policy,
-            'known_hosts_file': self.resolve(
-                self.config.get('DEFAULT', 'known_hosts_file', fallback='known_hosts')
-            ),
-            'timeout': self.config.getfloat('DEFAULT', 'timeout', fallback=30.0),
-            'atomic_uploads': self.config.getboolean('DEFAULT', 'atomic_uploads', fallback=True),
+            'known_hosts_file': self.resolve(self._opt(section, 'known_hosts_file', 'known_hosts')),
+            'timeout': self._typed(section, 'timeout', 30.0, float),
+            'atomic_uploads': self._typed(section, 'atomic_uploads', True, self._bool),
         }
 
     def resolve(self, path: str) -> str:
@@ -133,7 +237,7 @@ class ConfigManager:
             key: Configuration key
             value: New value
         """
-        if section != 'DEFAULT' and section not in self.config:
+        if not self.config.has_section(section):
             self.config.add_section(section)
 
         self.config.set(section, key, value)

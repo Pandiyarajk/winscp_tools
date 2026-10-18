@@ -74,7 +74,8 @@ class ScheduledTask:
                  source_path: str, dest_path: str = "",
                  scheduled_time: Optional[datetime] = None,
                  recurring: bool = False, interval_minutes: int = 0,
-                 daily_time: str = "", weekdays: Optional[List[int]] = None):
+                 daily_time: str = "", weekdays: Optional[List[int]] = None,
+                 server: str = ""):
         """
         Initialize a scheduled task
 
@@ -89,6 +90,7 @@ class ScheduledTask:
             interval_minutes: Interval for recurring tasks
             daily_time: "HH:MM" to run every day at that time (implies recurring)
             weekdays: Days a daily task runs, 0 = Monday; empty means every day
+            server: Name of the configured server it runs against ('' = the default server)
 
         Raises:
             ValueError: If the task definition is incomplete
@@ -118,6 +120,7 @@ class ScheduledTask:
         self.interval_minutes = interval_minutes if recurring else 0
         self.daily_time = daily_time.strip()
         self.weekdays = weekdays
+        self.server = server.strip()
         self.status = TaskStatus.PENDING
         self.last_run: Optional[datetime] = None
         self.next_run: Optional[datetime] = (
@@ -152,6 +155,11 @@ class ScheduledTask:
             return self.scheduled_time + slots * step
         return None
 
+    @property
+    def server_label(self) -> str:
+        """Server name for display"""
+        return self.server or "default"
+
     def describe_schedule(self) -> str:
         """Human readable schedule"""
         if self.daily_time:
@@ -182,6 +190,7 @@ class ScheduledTask:
             'interval_minutes': self.interval_minutes,
             'daily_time': self.daily_time,
             'weekdays': self.weekdays,
+            'server': self.server,
             'status': self.status.value,
             'last_run': self.last_run.isoformat() if self.last_run else None,
             'next_run': self.next_run.isoformat() if self.next_run else None,
@@ -203,6 +212,7 @@ class ScheduledTask:
             interval_minutes=data.get('interval_minutes', 0),
             daily_time=data.get('daily_time', ''),
             weekdays=data.get('weekdays') or [],
+            server=data.get('server', ''),
         )
         task.status = TaskStatus(data.get('status', 'pending'))
         task.last_run = datetime.fromisoformat(data['last_run']) if data.get('last_run') else None
@@ -633,6 +643,7 @@ class TaskScheduler:
                 'time': finished.isoformat(timespec='seconds'),
                 'task_id': task.task_id,
                 'type': task.task_type.value,
+                'server': task.server_label,
                 'source': task.source_path,
                 'dest': task.dest_path,
                 'result': 'failed' if error else 'ok',

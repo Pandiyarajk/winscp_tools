@@ -212,7 +212,7 @@ def test_list_dir_types_and_order(remote, tmp_path):
 
 def test_scheduled_pattern_upload_and_partial_failure_message(remote, tmp_path, local_tree):
     sched = TaskScheduler(str(tmp_path / "tasks.json"))
-    sched.set_task_executor(make_task_executor(lambda: conn_for(remote, tmp_path)))
+    sched.set_task_executor(make_task_executor(lambda _server: conn_for(remote, tmp_path)))
     past = datetime.now() - timedelta(seconds=1)
     sched.add_task(ScheduledTask("bulk-0001", TaskType.UPLOAD, str(local_tree / "*.csv"), "/nightly/",
                                  scheduled_time=past))

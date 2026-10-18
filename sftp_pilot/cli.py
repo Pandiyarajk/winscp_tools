@@ -94,7 +94,11 @@ def run_due(config_path: str, tasks_file: str) -> int:
     log = logging.getLogger("sftp_pilot.run_due")
     try:
         cfg = ConfigManager(config_path)
-        cfg.get_connection_details()  # validate before touching any task
+        names = cfg.server_names()
+        if not names:
+            raise ValueError("the config describes no server (add host and username to [DEFAULT])")
+        for name in names:  # validate every server before touching any task
+            cfg.get_connection_details(name)
         sched_cfg = cfg.get_scheduling_config()
     except Exception as e:
         log.error(f"Cannot use configuration {os.path.abspath(config_path)}: {e}")
@@ -136,7 +140,8 @@ def show_history(tasks_file: str, limit: int, task_id: str = "") -> int:
         print("No task runs recorded yet.")
         return 0
     for r in records:
-        line = (f"{r.get('time', '?')}  {str(r.get('task_id', ''))[:8]}  {r.get('type', ''):8}  "
+        line = (f"{r.get('time', '?')}  {str(r.get('task_id', ''))[:8]}  {r.get('server', ''):8}  "
+                f"{r.get('type', ''):8}  "
                 f"{r.get('result', ''):6}  try {r.get('attempt', 1)}  {r.get('duration_s', 0):>8}s  "
                 f"{r.get('runner', '')}")
         if r.get('error'):

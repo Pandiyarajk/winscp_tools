@@ -48,22 +48,23 @@ def run_task(handler: SFTPHandler, task: ScheduledTask) -> bool:
 
 
 def make_task_executor(
-    get_connection_details: Callable[[], Dict[str, Any]],
+    get_connection_details: Callable[[str], Dict[str, Any]],
     handler_factory: Callable[[Dict[str, Any]], SFTPHandler] = SFTPHandler.from_config,
 ) -> Callable[[ScheduledTask], bool]:
     """
     Build a scheduler executor that connects, runs one task and disconnects
 
     Args:
-        get_connection_details: Returns current connection details (read per run,
-            so a config reload takes effect without restarting the scheduler)
+        get_connection_details: Called with a task's server name ('' = default); returns
+            connection details (read per run, so a config reload takes effect
+            without restarting the scheduler)
         handler_factory: Builds a handler from connection details
 
     Returns:
         A callable suitable for TaskScheduler.set_task_executor
     """
     def execute(task: ScheduledTask) -> bool:
-        handler = handler_factory(get_connection_details())
+        handler = handler_factory(get_connection_details(task.server))
         if not handler.connect():
             raise ConnectionError(f"Could not connect for scheduled task: {handler.last_error}")
         try:

@@ -197,6 +197,17 @@ class SFTPPilotGUI:
         tab = ttk.Frame(self.notebook)
         self.notebook.add(tab, text="Connection")
 
+        server_frame = ttk.Frame(tab)
+        server_frame.pack(fill='x', padx=10, pady=(10, 0))
+        ttk.Label(server_frame, text="Server:").pack(side='left')
+        self.server_var = tk.StringVar()
+        self.server_combo = ttk.Combobox(server_frame, textvariable=self.server_var,
+                                         state="readonly", width=30)
+        self.server_combo.pack(side='left', padx=6)
+        self.server_combo.bind("<<ComboboxSelected>>", lambda _e: self.load_server_fields())
+        ttk.Label(server_frame, foreground='gray',
+                  text="from the config file: [DEFAULT] and [server:<name>] sections").pack(side='left')
+
         conn_frame = ttk.LabelFrame(tab, text="Connection Settings (SFTP)", padding=10)
         conn_frame.pack(fill='x', padx=10, pady=10)
 
@@ -373,6 +384,12 @@ class SFTPPilotGUI:
         ttk.Label(self.weekday_frame, text="(none ticked = every day)").grid(row=0, column=7, padx=5)
         self._update_schedule_fields()
 
+        ttk.Label(add_frame, text="Server:").grid(row=5, column=0, sticky='w', pady=5)
+        self.task_server_var = tk.StringVar()
+        self.task_server_combo = ttk.Combobox(add_frame, textvariable=self.task_server_var,
+                                              state="readonly", width=37)
+        self.task_server_combo.grid(row=5, column=1, padx=5, pady=5, sticky='w')
+
         ttk.Button(add_frame, text="Add Task", command=self.add_scheduled_task).grid(row=6, column=1, pady=10)
 
         list_frame = ttk.LabelFrame(tab, text="Scheduled Tasks", padding=10)
@@ -384,7 +401,7 @@ class SFTPPilotGUI:
         btn_frame = ttk.Frame(list_frame)
         btn_frame.pack(side='bottom', fill='x', pady=5)
 
-        columns = ('ID', 'Type', 'Source', 'Destination', 'Schedule', 'Next Run', 'Status')
+        columns = ('ID', 'Server', 'Type', 'Source', 'Destination', 'Schedule', 'Next Run', 'Status')
         self.tasks_tree = ttk.Treeview(list_frame, columns=columns, show='headings', height=8)
         for col in columns:
             self.tasks_tree.heading(col, text=col)
@@ -403,6 +420,11 @@ class SFTPPilotGUI:
 
         self.scheduler_status_label = ttk.Label(control_frame, text="Scheduler: Stopped")
         self.scheduler_status_label.pack(side='left', padx=5)
+
+    def _task_server(self) -> str:
+        """Server name stored on a new task ('' means the default server)"""
+        name = self.task_server_var.get().strip()
+        return "" if name in ("", "default") else name
 
     def _update_schedule_fields(self) -> None:
         """Show only the inputs the chosen schedule uses"""
@@ -435,8 +457,8 @@ class SFTPPilotGUI:
                         command=self.refresh_history).pack(side='left')
         ttk.Button(top, text="Refresh", command=self.refresh_history).pack(side='right')
 
-        columns = ('Time', 'Task', 'Type', 'Result', 'Try', 'Seconds', 'Runner', 'Error')
-        widths = (140, 80, 70, 60, 40, 70, 70, 400)
+        columns = ('Time', 'Task', 'Server', 'Type', 'Result', 'Try', 'Seconds', 'Runner', 'Error')
+        widths = (140, 80, 70, 70, 60, 40, 70, 70, 400)
         frame = ttk.Frame(tab)
         frame.pack(fill='both', expand=True, padx=10, pady=10)
         self.history_tree = ttk.Treeview(frame, columns=columns, show='headings')
@@ -462,6 +484,7 @@ class SFTPPilotGUI:
             self.history_tree.insert('', 'end', values=(
                 str(record.get('time', '')).replace('T', ' '),
                 str(record.get('task_id', ''))[:8],
+                record.get('server', ''),
                 record.get('type', ''),
                 record.get('result', ''),
                 record.get('attempt', 1),
@@ -589,18 +612,22 @@ class SFTPPilotGUI:
         """Load configuration from file"""
         try:
             self.config_manager = ConfigManager(self.config_path)
-            conn = self.config_manager.get_connection_details()
+            names = self.config_manager.server_names()
+            if not names:
+                raise ValueError("the config describes no server (host and username in "
+                                 "[DEFAULT] or in a [server:<name>] section)")
         except Exception as e:
             self.config_manager = None
             self.logger.error(f"Failed to load configuration {self.config_path}: {e}")
             return
 
-        self._set_entry(self.host_entry, conn.get('host', ''))
-        self._set_entry(self.port_entry, str(conn.get('port', 22)))
-        self._set_entry(self.username_entry, conn.get('username', ''))
-        self._set_entry(self.password_entry, conn.get('password', ''))
-        self._set_entry(self.key_entry, conn.get('private_key_path', ''))
-        self._set_entry(self.passphrase_entry, conn.get('private_key_passphrase', ''))
+        self.server_combo.config(values=names)
+        if self.server_var.get() not in names:
+            self.server_var.set(names[0])
+        self.task_server_combo.config(values=names)
+        if self.task_server_var.get() not in names:
+            self.task_server_var.set(names[0])
+        self.load_server_fields()
 
         remote_dir = self.config_manager.get_paths()['remote_upload_dir']
         if remote_dir and not self.upload_remote_entry.get():
@@ -612,6 +639,22 @@ class SFTPPilotGUI:
         self.scheduler.retry_delay = sched_cfg['retry_delay']
         self.scheduler.set_task_executor(make_task_executor(self.config_manager.get_connection_details))
         self.logger.info(f"Configuration loaded from {self.config_path}")
+
+    def load_server_fields(self) -> None:
+        """Fill the Connection fields from the selected server's config section"""
+        if not self.config_manager:
+            return
+        try:
+            conn = self.config_manager.get_connection_details(self.server_var.get())
+        except ValueError as e:
+            self.logger.error(f"Cannot load server '{self.server_var.get()}': {e}")
+            return
+        self._set_entry(self.host_entry, conn.get('host', ''))
+        self._set_entry(self.port_entry, str(conn.get('port', 22)))
+        self._set_entry(self.username_entry, conn.get('username', ''))
+        self._set_entry(self.password_entry, conn.get('password', ''))
+        self._set_entry(self.key_entry, conn.get('private_key_path', ''))
+        self._set_entry(self.passphrase_entry, conn.get('private_key_passphrase', ''))
 
     def connect(self):
         """Connect to remote server (in the background, so the window stays responsive)"""
@@ -629,7 +672,12 @@ class SFTPPilotGUI:
             messagebox.showerror("Error", "Host and username are required")
             return
 
-        conn = dict(self.config_manager.get_connection_details()) if self.config_manager else {}
+        try:
+            conn = (dict(self.config_manager.get_connection_details(self.server_var.get()))
+                    if self.config_manager else {})
+        except ValueError as e:
+            messagebox.showerror("Error", str(e))
+            return
         conn.update({
             'host': host, 'port': port, 'username': username,
             'password': self.password_entry.get(),
@@ -751,6 +799,7 @@ class SFTPPilotGUI:
                 task_type=task_type,
                 source_path=self.task_source_entry.get().strip(),
                 dest_path=self.task_dest_entry.get().strip(),
+                server=self._task_server(),
                 **options,
             )
         except ValueError as e:
@@ -784,6 +833,7 @@ class SFTPPilotGUI:
         for task in self.scheduler.get_all_tasks():
             self.tasks_tree.insert('', 'end', iid=task.task_id, values=(
                 task.task_id[:8],
+                task.server_label,
                 task.task_type.value,
                 task.source_path[-40:],
                 task.dest_path[-40:] if task.dest_path else 'N/A',

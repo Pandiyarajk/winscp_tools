@@ -121,7 +121,7 @@ def test_scheduler_runs_task_on_its_own_connection(remote, tmp_path):
     src = tmp_path / "nightly.txt"
     src.write_text("backup")
     sched = TaskScheduler(str(tmp_path / "tasks.json"))
-    sched.set_task_executor(make_task_executor(lambda: conn_for(remote, tmp_path)))
+    sched.set_task_executor(make_task_executor(lambda _server: conn_for(remote, tmp_path)))
     sched.add_task(ScheduledTask("task-0001", TaskType.UPLOAD, str(src), "/backups/",
                                  datetime.now() - timedelta(seconds=1)))
     sched.run_due_tasks()
@@ -131,7 +131,7 @@ def test_scheduler_runs_task_on_its_own_connection(remote, tmp_path):
 
 def test_scheduled_failure_records_the_reason(remote, tmp_path):
     sched = TaskScheduler(str(tmp_path / "tasks.json"))
-    sched.set_task_executor(make_task_executor(lambda: conn_for(remote, tmp_path)))
+    sched.set_task_executor(make_task_executor(lambda _server: conn_for(remote, tmp_path)))
     sched.add_task(ScheduledTask("task-0002", TaskType.DELETE, "/no/such/file",
                                  scheduled_time=datetime.now() - timedelta(seconds=1)))
     record = sched.run_due_tasks()[0]

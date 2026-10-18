@@ -85,10 +85,11 @@ def test_two_processes_run_a_task_once(setup, tmp_path):
 
     env = dict(os.environ, PYTHONPATH=str(REPO))
     procs = [subprocess.Popen([sys.executable, "-m", "sftp_pilot", "-c", str(cfg), "--run-due"],
-                              cwd=elsewhere, env=env, stdout=subprocess.DEVNULL,
-                              stderr=subprocess.DEVNULL) for _ in range(2)]
-    codes = [p.wait(120) for p in procs]
-    assert codes == [0, 0]
+                              cwd=elsewhere, env=env, stdout=subprocess.PIPE,
+                              stderr=subprocess.STDOUT, text=True) for _ in range(2)]
+    outputs = [p.communicate(timeout=120)[0] for p in procs]
+    codes = [p.returncode for p in procs]
+    assert codes == [0, 0], "\n---\n".join(outputs)
 
     history = [json.loads(line) for line in
                (cfg_dir / "scheduled_tasks.history.jsonl").read_text().splitlines()]

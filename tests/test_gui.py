@@ -208,3 +208,65 @@ def test_ask_policy_dialog_trusts_or_refuses(app, dialogs, tmp_path):
     assert pump(app, lambda: not app.busy)
     assert app.sftp_handler is not None
     assert "127.0.0.1" in (tmp_path / "kh").read_text(encoding="utf-8")
+
+
+@pytest.fixture
+def app2(tk_root, remote, remote_b, tmp_path, dialogs):
+    cfg = tmp_path / "config.ini"
+    cfg.write_text(
+        f"[DEFAULT]\nhost = 127.0.0.1\nport = {remote.port}\nusername = {USER}\npassword = {PASSWORD}\n"
+        f"known_hosts_file = kh\ntimeout = 10\n[LOGGING]\nlog_file =\n"
+        f"[server:second]\nhost = 127.0.0.1\nport = {remote_b.port}\nusername = {USER}\n"
+        f"password = {PASSWORD}\n", encoding="utf-8")
+    (tmp_path / "remote/marker-main.txt").write_text("main")
+    (tmp_path / "remote_b/marker-second.txt").write_text("second")
+    gui = G.SFTPPilotGUI(tk_root, str(cfg), str(tmp_path / "tasks.json"))
+    yield gui
+    gui.shutdown()
+    for widget in tk_root.winfo_children():
+        widget.destroy()
+    tk_root.update()
+    gc.collect()
+
+
+def test_server_picker_loads_and_connects_to_the_chosen_server(app2, remote, remote_b):
+    assert list(app2.server_combo.cget("values")) == ["default", "second"]
+    assert app2.server_var.get() == "default" and app2.port_entry.get() == str(remote.port)
+
+    app2.server_var.set("second")
+    app2.load_server_fields()
+    assert app2.port_entry.get() == str(remote_b.port)
+
+    connect(app2)
+    app2.open_remote_browser(app2.download_remote_entry, MODE_ANY)
+    b = browser(app2)
+    assert pump(app2, lambda: rows(b))
+    assert rows(b) == ["marker-second.txt"], "connected to the wrong server"
+    b.close()
+    app2.disconnect()
+
+    app2.server_var.set("default")
+    app2.load_server_fields()
+    connect(app2)
+    app2.open_remote_browser(app2.download_remote_entry, MODE_ANY)
+    b = browser(app2)
+    assert pump(app2, lambda: rows(b))
+    assert rows(b) == ["marker-main.txt"]
+
+
+def test_new_task_remembers_its_server(app2):
+    assert list(app2.task_server_combo.cget("values")) == ["default", "second"]
+    app2.task_source_entry.insert(0, "/old.log")
+    app2.task_type_var.set("delete")
+    app2.schedule_kind_var.set(G.SCHEDULE_ONCE)
+    app2._update_schedule_fields()
+
+    app2.task_server_var.set("second")
+    app2.add_scheduled_task()
+    app2.task_server_var.set("default")
+    app2.add_scheduled_task()
+
+    servers = sorted(t.server for t in app2.scheduler.get_all_tasks())
+    assert servers == ["", "second"], "the default server is stored as ''"
+    shown = sorted(app2.tasks_tree.item(i)["values"][1] for i in app2.tasks_tree.get_children())
+    assert shown == ["default", "second"]
