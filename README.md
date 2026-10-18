@@ -56,6 +56,10 @@ sftp-pilot --console         # console menu
 
 [PyPI](https://pypi.org/project/sftp-pilot/) · `python -m sftp_pilot` works too.
 
+**No Python on the machine?** On Windows, download `sftp-pilot-<version>-windows-x64.zip`
+from the [releases page](https://github.com/Pandiyarajk/sftp-pilot/releases); see
+[Windows program](#windows-program-no-python-needed).
+
 From a source checkout: `pip install .`, or without installing
 `pip install -r requirements.txt` then `python main.py`.
 
@@ -196,6 +200,46 @@ server later presents a different key, the connection is refused with a
 warning, since that is what a man-in-the-middle attack looks like. If the key
 really did change (server rebuilt), delete that server's line from the file.
 
+## Windows program (no Python needed)
+
+Each release has a zip with two programs built from this same code:
+`sftp-pilot-gui.exe` (the window, no console) and `sftp-pilot.exe` (the command
+line, `--run-due`, `--history`, keyring commands). To install for your user, no
+administrator rights needed:
+
+```powershell
+Expand-Archive sftp-pilot-2.2.0-windows-x64.zip -DestinationPath sftp-pilot
+powershell -ExecutionPolicy Bypass -File sftp-pilot\install.ps1
+notepad "$env:APPDATA\SFTP Pilot\config.ini"      # your server details
+```
+
+That puts the program in `%LOCALAPPDATA%\Programs\SFTP Pilot`, your settings
+(`config.ini`, tasks, history, `known_hosts`) in `%APPDATA%\SFTP Pilot`, and an
+**SFTP Pilot** shortcut in the Start menu. Running `install.ps1` again upgrades
+the program and keeps your settings. `-AddToPath` also puts `sftp-pilot.exe` on
+your PATH.
+
+To run scheduled tasks while the window is closed, one command registers the
+Task Scheduler job (every 5 minutes by default, no console window flashing):
+
+```powershell
+powershell -ExecutionPolicy Bypass -File "$env:LOCALAPPDATA\Programs\SFTP Pilot\register-task.ps1" -Minutes 5
+```
+
+Add `-RunWhenLoggedOff` from an elevated PowerShell to run when nobody is logged
+on, and `-Remove` to delete the job. `uninstall.ps1` removes the program, the
+shortcut and the job and keeps your settings unless you pass `-RemoveData`.
+
+Things to know:
+
+- The programs are **not code-signed**, so Windows SmartScreen may say
+  "Windows protected your PC" the first time. Check the SHA256 on the release
+  page (`Get-FileHash <zip> -Algorithm SHA256`) before choosing "Run anyway".
+  Some antivirus products also dislike programs built with PyInstaller. If that
+  worries you, `pip install sftp-pilot` gives you the same program from source.
+- Build it yourself with `packaging\windows\build.ps1` (needs Python 3.11+; it
+  works in a private virtual environment and installs nothing system-wide).
+
 ## Using it
 
 ### GUI
@@ -330,6 +374,7 @@ sftp_pilot/
   remote_browser.py  the remote file browser dialog
   keystore.py        optional OS keyring storage
   console.py         console menu
+packaging/windows/   PyInstaller spec and the install, uninstall and Task Scheduler scripts
 tests/               pytest suite
 ```
 

@@ -39,6 +39,15 @@ Usability: several servers, whole folders, a remote browser, trust and keyring.
   Opt-in per server so an unattended run never waits on a locked keyring.
   Order of use: environment variable, keyring, file.
 
+- **Windows program, no Python needed:** `sftp-pilot-gui.exe` (no console window)
+  and `sftp-pilot.exe` from one PyInstaller build, shipped as a zip on the
+  releases page with `install.ps1` (per user, no admin rights, Start menu
+  shortcut, settings in `%APPDATA%\SFTP Pilot`), `register-task.ps1` (Task
+  Scheduler job for `--run-due`, optionally when logged off), `uninstall.ps1`
+  and `build.ps1`. Not code-signed: SmartScreen may warn. The windowless exe
+  accepts `--run-due` and the other command-line modes, so a scheduled run
+  never flashes a console window.
+
 ### Changed
 - **A named server never inherits credentials from `[DEFAULT]`.** configparser's
   default inheritance is switched off, so a server that only changed its host

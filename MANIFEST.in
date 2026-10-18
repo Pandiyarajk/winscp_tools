@@ -5,6 +5,7 @@ include LICENSE
 include sftp_pilot/example_config.ini
 include requirements.txt
 recursive-include tests *.py
+recursive-include packaging *
 
 exclude config.ini
 exclude scheduled_tasks.json
