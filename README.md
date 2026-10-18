@@ -16,7 +16,7 @@ It speaks SFTP directly through [paramiko](https://www.paramiko.org/), so it
 runs anywhere Python does. It was called WinSCP Manager (`winscp_tools`) up to
 version 1.1.0; see [CHANGE_LOG.md](https://github.com/Pandiyarajk/sftp-pilot/blob/main/CHANGE_LOG.md) for what moved.
 
-**Version:** 2.1.0 · **Python:** 3.11+ · **License:** MIT
+**Version:** 2.2.0 · **Python:** 3.11+ · **License:** MIT
 
 ## Features
 
@@ -37,7 +37,16 @@ version 1.1.0; see [CHANGE_LOG.md](https://github.com/Pandiyarajk/sftp-pilot/blo
   with an open GUI, and a task never runs twice
 - **Run history** of every scheduled run, in the GUI, the console and
   `sftp-pilot --history`
-- Secrets can come from environment variables instead of the config file
+- **Folders and patterns:** upload or download a whole folder, or `*.csv`; one bad file
+  does not stop the rest
+- **Remote file browser** in the GUI, next to every remote path
+- **A clearer window:** light and dark look (follows Windows, one click to switch),
+  a status bar with the connection and task counts, coloured task and history rows,
+  sortable tables and a filterable log
+- **Several servers** in one config; each scheduled task remembers its server
+- **Host-key fingerprint prompt** for new servers (`host_key_policy = ask`)
+- Secrets can come from environment variables or the OS keyring (opt-in per server)
+  instead of the config file
 
 ## Quick start
 
@@ -49,6 +58,10 @@ sftp-pilot --console         # console menu
 ```
 
 [PyPI](https://pypi.org/project/sftp-pilot/) · `python -m sftp_pilot` works too.
+
+**No Python on the machine?** On Windows, download `sftp-pilot-<version>-windows-x64.zip`
+from the [releases page](https://github.com/Pandiyarajk/sftp-pilot/releases); see
+[Windows program](#windows-program-no-python-needed).
 
 From a source checkout: `pip install .`, or without installing
 `pip install -r requirements.txt` then `python main.py`.
@@ -63,6 +76,8 @@ Options:
 | `-c`, `--config PATH` | Configuration file (default `config.ini` in the current folder) |
 | `--tasks-file PATH` | Where scheduled tasks are saved (default `scheduled_tasks.json` beside the config) |
 | `--init-config` | Write a starter config to the `--config` path (never overwrites) |
+| `--store-password`, `--store-passphrase` | Keep a server's password or key passphrase in the OS keyring (prompted, not echoed); add `--server NAME` for a named server |
+| `--forget-secrets` | Remove a server's stored password and passphrase from the keyring |
 | `--version` | Print the version |
 
 On Linux the GUI needs tkinter (`sudo apt-get install python3-tk`); the console
@@ -109,7 +124,8 @@ log_level = INFO
 | `password` | Overridden by the `SFTP_PILOT_PASSWORD` environment variable |
 | `private_key_path` | Key file; when set, key authentication is used |
 | `private_key_passphrase` | Overridden by `SFTP_PILOT_KEY_PASSPHRASE` |
-| `host_key_policy` | `accept_new` (default): trust on first connect, refuse a changed key. `reject`: only hosts already known. `auto_add`: no checking, testing only |
+| `password_store` | `file` (default) or `keyring`: also read the password and passphrase from the OS keyring. Never inherited, always per server |
+| `host_key_policy` | `accept_new` (default): trust on first connect, refuse a changed key. `ask`: show the fingerprint and trust only on a yes (GUI and console; scheduled runs cannot ask, so they refuse unknown servers). `reject`: only hosts already known. `auto_add`: no checking, testing only |
 | `known_hosts_file` | Where accepted host keys are stored; `~/.ssh/known_hosts` is also read |
 | `timeout` | Seconds allowed for connect and authentication |
 | `atomic_uploads` | Upload to `<name>.part`, then rename into place. Set `false` only for a server that forbids renames |
@@ -124,6 +140,31 @@ taken relative to the folder the config file is in, not the current directory.
 That is what makes `--run-due` safe to start from Task Scheduler, which starts
 programs in `C:\Windows\System32`.
 
+### Several servers
+
+`[DEFAULT]` is the default server. Add one `[server:<name>]` section for each
+other server:
+
+```ini
+[server:backup]
+host = backup.example.com
+port = 2222
+username = svc_backup
+private_key_path = ~/.ssh/backup_ed25519
+```
+
+The GUI has a server picker on the Connection and Scheduler tabs, the console
+asks when there is more than one, and every scheduled task remembers its
+server (`--run-due` connects each task to its own). History shows the server.
+
+**A named server never inherits credentials.** `host`, `username` and the
+password, key and passphrase must be in its own section; otherwise a server
+that only changed its host would receive another server's password. It does
+share `protocol`, `host_key_policy`, `known_hosts_file`, `timeout` and
+`atomic_uploads` with `[DEFAULT]`. Environment passwords are per server too:
+`SFTP_PILOT_PASSWORD` is for the default server only, and a named server uses
+`SFTP_PILOT_PASSWORD_<NAME>` (for example `SFTP_PILOT_PASSWORD_BACKUP`).
+
 ### Keeping the password out of the file
 
 ```powershell
@@ -136,6 +177,25 @@ export SFTP_PILOT_PASSWORD='...'     # bash
 
 Key authentication is the better option for anything unattended.
 
+### Passwords in the OS keyring
+
+Windows Credential Manager, macOS Keychain or the Linux Secret Service, via the
+optional `keyring` package:
+
+```bash
+pip install sftp-pilot[keyring]
+sftp-pilot --store-password                  # [DEFAULT] server; prompted, not echoed
+sftp-pilot --store-password --server backup  # a named server
+```
+
+Then set `password_store = keyring` in that server's section and delete the
+plain-text `password` line. It is opt-in per server on purpose: a locked or
+missing keyring on a headless machine must never change or stall an unattended
+run. Order of use: environment variable, keyring, then the file. Entries are
+named `user@host:port`. `--forget-secrets` removes them. On a headless Linux
+server without a Secret Service, use key authentication or an environment
+variable instead.
+
 ### Host keys
 
 The first connection to a server stores its key in `known_hosts_file`. If the
@@ -143,25 +203,97 @@ server later presents a different key, the connection is refused with a
 warning, since that is what a man-in-the-middle attack looks like. If the key
 really did change (server rebuilt), delete that server's line from the file.
 
+## Windows program (no Python needed)
+
+Each release has a zip with two programs built from this same code:
+`sftp-pilot-gui.exe` (the window, no console) and `sftp-pilot.exe` (the command
+line, `--run-due`, `--history`, keyring commands). To install for your user, no
+administrator rights needed:
+
+```powershell
+Expand-Archive sftp-pilot-2.2.0-windows-x64.zip -DestinationPath sftp-pilot
+powershell -ExecutionPolicy Bypass -File sftp-pilot\install.ps1
+notepad "$env:APPDATA\SFTP Pilot\config.ini"      # your server details
+```
+
+That puts the program in `%LOCALAPPDATA%\Programs\SFTP Pilot`, your settings
+(`config.ini`, tasks, history, `known_hosts`) in `%APPDATA%\SFTP Pilot`, and an
+**SFTP Pilot** shortcut in the Start menu. Running `install.ps1` again upgrades
+the program and keeps your settings. `-AddToPath` also puts `sftp-pilot.exe` on
+your PATH.
+
+To run scheduled tasks while the window is closed, one command registers the
+Task Scheduler job (every 5 minutes by default, no console window flashing):
+
+```powershell
+powershell -ExecutionPolicy Bypass -File "$env:LOCALAPPDATA\Programs\SFTP Pilot\register-task.ps1" -Minutes 5
+```
+
+Add `-RunWhenLoggedOff` from an elevated PowerShell to run when nobody is logged
+on, and `-Remove` to delete the job. `uninstall.ps1` removes the program, the
+shortcut and the job and keeps your settings unless you pass `-RemoveData`.
+
+Things to know:
+
+- The programs are **not code-signed**, so Windows SmartScreen may say
+  "Windows protected your PC" the first time. Check the SHA256 on the release
+  page (`Get-FileHash <zip> -Algorithm SHA256`) before choosing "Run anyway".
+  Some antivirus products also dislike programs built with PyInstaller. If that
+  worries you, `pip install sftp-pilot` gives you the same program from source.
+- Build it yourself with `packaging\windows\build.ps1` (needs Python 3.11+; it
+  works in a private virtual environment and installs nothing system-wide).
+
 ## Using it
 
 ### GUI
 
-- **Connection:** host, port, user, password or key. Fields start from the
-  config file; **Reload Config** reads it again.
+- **Connection:** pick the server, then host, port, user, password or key.
+  Fields start from the config file; **Reload config** reads it again. A new
+  server with `host_key_policy = ask` shows its fingerprint first. The banner
+  at the top and the status bar show whether you are connected; Enter in any
+  field connects, and **Show** reveals the password.
 - **File Operations:** upload (a remote path ending in `/` keeps the local file
-  name), download, delete (asks first). One transfer runs at a time, the window
-  stays responsive, and **Cancel** stops it cleanly.
+  name), download, delete (asks first). **Browse remote...** opens a file
+  browser on the server. One transfer runs at a time, the window stays
+  responsive, and **Cancel** stops it cleanly.
 - **Scheduler:** add tasks (once, every N minutes, or daily at a time with
   optional weekdays), start or stop the scheduler, remove the selected tasks.
   The list refreshes every few seconds and shows each task's schedule, next run
-  and status (`retrying (1 failed)`, `pending (last run failed)`, ...).
+  and status (`retrying (1 failed)`, `pending (last run failed)`, ...), with
+  failed rows in red, running in blue and retrying in amber. Click a heading to
+  sort; right-click a task (or press Delete) to remove it or open its history.
 - **History:** every scheduled run, from this window, the console or
-  `--run-due`, with its result, attempt, duration and error.
-- **Logs:** everything that is written to the log.
+  `--run-due`, with its result, attempt, duration and error. Double-click a row
+  for the full message.
+- **Logs:** everything that is written to the log, with warnings and errors
+  coloured. Filter to warnings and errors, follow new lines, **Copy** or
+  **Save...** the view, or **Clear** it.
+
+The status bar shows the connection, the number of tasks (and how many failed)
+and whether the scheduler is running. The link at its right switches between
+the light and dark look; the choice and the window size are remembered in
+`ui_state.json` next to your `config.ini`. Shortcuts: Ctrl+1 to Ctrl+5 switch
+tabs, F5 refreshes the task list and history.
 
 Scheduled tasks connect with the settings saved in the config file, not with
 whatever is typed in the Connection tab.
+
+### Folders and patterns
+
+Upload and download accept more than one file, in the GUI, the console and
+scheduled tasks:
+
+| You give | Upload | Download |
+| --- | --- | --- |
+| A file | `D:\out\a.csv` to `/in/` or `/in/new.csv` | `/in/a.csv` to a folder or a file name |
+| A folder | `D:\out` to `/backup` gives `/backup/out/...` (whole tree) | `/in` to `D:\got` gives `D:\got\in\...` |
+| A pattern | `D:\out\*.csv` (use `**` for subfolders) to `/in/` | `/in/*.csv` to a folder (the pattern is only allowed in the last part) |
+
+One failed file does not stop the others; the result says `1 of 5 failed: ...`
+and a scheduled task counts as failed. Existing files are replaced. Empty
+folders are not created, symbolic links are skipped, and a name a server sends
+that could point outside the destination is refused. Wildcard **delete** is
+deliberately not offered: one typo would empty a folder.
 
 ### Console
 
@@ -175,8 +307,9 @@ whatever is typed in the Connection tab.
 7. Schedule task
 ```
 
-Remove a task by its full ID or an unambiguous prefix of at least four
-characters. During a transfer Ctrl+C cancels it; elsewhere it exits cleanly,
+With several servers, connecting and scheduling ask which one. Upload and
+download take a file, folder or pattern. Remove a task by its full ID or an
+unambiguous prefix of at least four characters. During a transfer Ctrl+C cancels it; elsewhere it exits cleanly,
 stopping the scheduler and disconnecting.
 
 ## Running tasks unattended
@@ -254,7 +387,10 @@ sftp_pilot/
   scheduler.py       task model, schedules, retries, file lock, claims, history
   runner.py          runs a task on its own connection
   gui.py             tkinter interface
+  remote_browser.py  the remote file browser dialog
+  keystore.py        optional OS keyring storage
   console.py         console menu
+packaging/windows/   PyInstaller spec and the install, uninstall and Task Scheduler scripts
 tests/               pytest suite
 ```
 

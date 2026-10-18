@@ -3,8 +3,11 @@ include CHANGE_LOG.md
 include DISCLAIMER.md
 include LICENSE
 include sftp_pilot/example_config.ini
+include sftp_pilot/assets/icon.png
+include sftp_pilot/assets/icon.ico
 include requirements.txt
 recursive-include tests *.py
+recursive-include packaging *
 
 exclude config.ini
 exclude scheduled_tasks.json

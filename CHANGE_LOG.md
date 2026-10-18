@@ -12,6 +12,75 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [2.2.0] - 2026-10-18
+
+Usability: several servers, whole folders, a remote browser, trust and keyring.
+
+### Added
+- **Several servers:** `[server:<name>]` sections next to `[DEFAULT]`. The GUI
+  (Connection and Scheduler tabs) and the console pick a server, each scheduled
+  task remembers its server, `--run-due` connects each task to its own, and the
+  history and task lists show it. Single-server configs and 2.1 task files load
+  unchanged.
+- **Folders and patterns:** upload or download a folder (recursively) or a
+  pattern such as `*.csv`, in the GUI, the console and scheduled tasks. One bad
+  file does not stop the others; the result reports `N of M failed`. Symbolic
+  links are skipped, and a file name sent by a server that could point outside
+  the destination is refused. Wildcard delete is deliberately not offered.
+- **Remote file browser** (GUI): a Browse remote button beside every remote
+  path, plus Folder buttons for local folders.
+- **A redesigned window:** a consistent flat theme with a **dark mode** that
+  follows Windows (switch from the status bar; remembered with the window size
+  in `ui_state.json`), an app icon, a status bar showing the connection, task
+  counts and scheduler state (it was crushed to a sliver before), forms that use
+  the window width, a task table whose columns share the width instead of
+  cutting off Status, coloured rows for failed, running and retrying tasks and
+  for failed runs, sortable tables, a Remove button that is only enabled when a
+  task is selected, a right-click menu, Show history, run details on
+  double-click, and a log view with coloured levels, a filter, Copy, Save and
+  Clear (capped at 5000 lines; the pane used to grow without limit). The window
+  is sized to fit the screen. The transfer progress bar and Cancel button sit
+  above the status bar on every tab instead of inside File Operations, where
+  they were cut off on small windows. Upload, Download, Delete and Browse remote
+  are disabled until you connect, hints wrap instead of being clipped, and
+  removing a task asks first.
+- **Host-key fingerprint prompt:** `host_key_policy = ask` shows the SHA256
+  fingerprint of a new server and trusts it only on a yes. Scheduled and
+  `--run-due` runs cannot ask and refuse unknown servers. `accept_new` now logs
+  the fingerprint it trusted.
+- **OS keyring (optional):** `pip install sftp-pilot[keyring]`,
+  `sftp-pilot --store-password [--server NAME]`, then `password_store = keyring`
+  in that server's section. Also `--store-passphrase` and `--forget-secrets`.
+  Opt-in per server so an unattended run never waits on a locked keyring.
+  Order of use: environment variable, keyring, file.
+
+- **Windows program, no Python needed:** `sftp-pilot-gui.exe` (no console window)
+  and `sftp-pilot.exe` from one PyInstaller build, shipped as a zip on the
+  releases page with `install.ps1` (per user, no admin rights, Start menu
+  shortcut, settings in `%APPDATA%\SFTP Pilot`), `register-task.ps1` (Task
+  Scheduler job for `--run-due`, optionally when logged off), `uninstall.ps1`
+  and `build.ps1`. Not code-signed: SmartScreen may warn. The windowless exe
+  accepts `--run-due` and the other command-line modes, so a scheduled run
+  never flashes a console window.
+
+### Changed
+- **A named server never inherits credentials from `[DEFAULT]`.** configparser's
+  default inheritance is switched off, so a server that only changed its host
+  cannot receive another server's password. `protocol`, `host_key_policy`,
+  `known_hosts_file`, `timeout` and `atomic_uploads` are still shared.
+- Environment passwords are per server: `SFTP_PILOT_PASSWORD` is for the default
+  server only; a named server uses `SFTP_PILOT_PASSWORD_<NAME>`.
+- Other sections (`[PATHS]`, `[SCHEDULING]`, `[LOGGING]`) no longer inherit keys
+  from `[DEFAULT]`.
+- When a password is configured and no key file, the SSH agent and `~/.ssh` keys
+  are no longer offered first: it was slow, and servers with a low `MaxAuthTries`
+  could refuse the login before the password was tried.
+- API: `make_task_executor`'s callback now receives the task's server name;
+  `SFTPHandler.upload()` and `download()` (file, folder or pattern) return a
+  `BulkResult`; `ConfigManager.get_connection_details(server="")`.
+
+---
+
 ## [2.1.0] - 2026-10-18
 
 Safer transfers and unattended runs.

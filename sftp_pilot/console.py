@@ -17,7 +17,7 @@ from typing import Iterator, List, Optional
 from .config_manager import ConfigManager
 from .runner import make_task_executor
 from .scheduler import ScheduledTask, TaskScheduler, TaskType
-from .sftp_handler import CANCELLED, SFTPHandler
+from .sftp_handler import BulkResult, SFTPHandler
 
 
 def _progress_printer(verb: str):
@@ -42,13 +42,27 @@ def _ctrl_c_cancels() -> Iterator[threading.Event]:
         signal.signal(signal.SIGINT, previous)
 
 
-def _report(ok: bool, handler: SFTPHandler, what: str) -> None:
-    if ok:
-        print(f"\nOK: {what} completed")
-    elif handler.last_error == CANCELLED:
-        print(f"\nCancelled: {what} stopped, nothing was left half-written")
+def _confirm_host_key(host: str, key_type: str, fp: str) -> bool:
+    """Show an unknown server's fingerprint and ask whether to trust it"""
+    print(f"\nFirst connection to {host}.")
+    print(f"  Key type:    {key_type}")
+    print(f"  Fingerprint: {fp}")
+    print("Compare it with the one your server administrator gave you.")
+    return input("Trust this server? (yes/no) [no]: ").strip().lower() == 'yes'
+
+
+def _item_printer(done: int, total: int, name: str) -> None:
+    if total > 1:
+        print(f"\n[{done}/{total}] {name}")
+
+
+def _report(result: BulkResult, what: str) -> None:
+    if result.ok:
+        print(f"\nOK: {what} completed: {result.summary()}")
+    elif result.cancelled:
+        print(f"\nCancelled: {what} stopped after {result.done} file(s); nothing was left half-written")
     else:
-        print(f"\nFAILED: {what} failed: {handler.last_error}")
+        print(f"\nFAILED: {what} failed: {result.summary()}")
 
 
 def _parse_days(text: str) -> List[int]:
@@ -218,14 +232,46 @@ class ConsoleInterface:
             print("\nConfiguration not loaded. Cannot connect.")
             return
 
-        conn_details = self.config_manager.get_connection_details()
-        print(f"\nConnecting to {conn_details['host']}:{conn_details['port']}...")
+        server = self._choose_server()
+        if server is None:
+            return
+        try:
+            conn_details = self.config_manager.get_connection_details(server)
+        except ValueError as e:
+            print(f"FAILED: {e}")
+            return
+        print(f"\nConnecting to {conn_details['server']} "
+              f"({conn_details['host']}:{conn_details['port']})...")
 
-        self.sftp_handler = SFTPHandler.from_config(conn_details)
+        self.sftp_handler = SFTPHandler.from_config(conn_details, confirm_host_key=_confirm_host_key)
         if self.sftp_handler.connect():
             print("OK: connected")
         else:
             print(f"FAILED: {self.sftp_handler.last_error}")
+
+    def _choose_server(self) -> Optional[str]:
+        """
+        Pick a configured server
+
+        Returns:
+            '' for the default server (also when only one is configured), the chosen
+            name, or None when the choice was invalid or there is no config
+        """
+        if not self.config_manager:
+            return None
+        names = self.config_manager.server_names()
+        if len(names) <= 1:
+            return "" if not names or names[0] == "default" else names[0]
+        print("\nServers:")
+        for number, name in enumerate(names, 1):
+            print(f"  {number}) {name}")
+        raw = input(f"Select server (number or name) [{names[0]}]: ").strip() or names[0]
+        if raw.isdigit() and 1 <= int(raw) <= len(names):
+            raw = names[int(raw) - 1]
+        if raw not in names:
+            print(f"FAILED: unknown server '{raw}'")
+            return None
+        return "" if raw == "default" else raw
 
     def disconnect(self):
         """Disconnect from server"""
@@ -243,7 +289,7 @@ class ConsoleInterface:
         if not handler:
             return
 
-        local_path = input("\nEnter local file path: ").strip().strip('"')
+        local_path = input("\nEnter local file, folder or pattern (for example D:\\out\\*.csv): ").strip().strip('"')
         default_dir = self.config_manager.get_paths()['remote_upload_dir'] if self.config_manager else ''
         remote_path = input(f"Enter remote destination path (end with / for a folder) [{default_dir}]: ").strip()
         remote_path = remote_path or default_dir
@@ -256,8 +302,9 @@ class ConsoleInterface:
 
         print(f"\nUploading {local_path} to {remote_path}...")
         with _ctrl_c_cancels() as cancel:
-            ok = handler.upload_file(local_path, remote_path, _progress_printer("Uploading"), cancel)
-        _report(ok, handler, "upload")
+            result = handler.upload(local_path, remote_path, _progress_printer("Uploading"), cancel,
+                                    _item_printer)
+        _report(result, "upload")
 
     def download_file(self):
         """Download file from server"""
@@ -265,7 +312,7 @@ class ConsoleInterface:
         if not handler:
             return
 
-        remote_path = input("\nEnter remote file path: ").strip()
+        remote_path = input("\nEnter remote file, folder or pattern (for example /in/*.csv): ").strip()
         default_dir = self.config_manager.get_paths()['local_download_dir'] if self.config_manager else ''
         local_path = input(f"Enter local destination (file or folder) [{default_dir}]: ").strip().strip('"')
         local_path = local_path or default_dir
@@ -276,8 +323,9 @@ class ConsoleInterface:
 
         print(f"\nDownloading {remote_path} to {local_path}...")
         with _ctrl_c_cancels() as cancel:
-            ok = handler.download_file(remote_path, local_path, _progress_printer("Downloading"), cancel)
-        _report(ok, handler, "download")
+            result = handler.download(remote_path, local_path, _progress_printer("Downloading"), cancel,
+                                      _item_printer)
+        _report(result, "download")
 
     def delete_file(self):
         """Delete file from server"""
@@ -363,9 +411,13 @@ class ConsoleInterface:
             print("FAILED: invalid schedule")
             return
 
+        server = self._choose_server()
+        if server is None and self.config_manager:
+            return
         task_id = str(uuid.uuid4())
         try:
-            task = ScheduledTask(task_id, task_type, source_path, dest_path, **options)
+            task = ScheduledTask(task_id, task_type, source_path, dest_path,
+                                 server=server or "", **options)
         except ValueError as e:
             print(f"FAILED: {e}")
             return
@@ -392,6 +444,7 @@ class ConsoleInterface:
         for task in tasks:
             print(f"\nTask ID: {task.task_id}")
             print(f"Type: {task.task_type.value}")
+            print(f"Server: {task.server_label}")
             print(f"Source: {task.source_path}")
             print(f"Destination: {task.dest_path or 'N/A'}")
             print(f"Next Run: {task.next_run:%Y-%m-%d %H:%M:%S}" if task.next_run else "Next Run: N/A")
@@ -408,11 +461,12 @@ class ConsoleInterface:
         if not records:
             print("No task runs recorded yet.")
             return
-        print(f"\n{'Time':19}  {'Task':8}  {'Type':8}  {'Result':6}  Try  Runner    Error")
+        print(f"\n{'Time':19}  {'Task':8}  {'Server':8}  {'Type':8}  {'Result':6}  Try  Runner    Error")
         print("-" * 80)
         for r in records:
             print(f"{str(r.get('time', ''))[:19]:19}  {str(r.get('task_id', ''))[:8]:8}  "
-                  f"{r.get('type', ''):8}  {r.get('result', ''):6}  {r.get('attempt', 1):>3}  "
+                  f"{r.get('server', ''):8}  {r.get('type', ''):8}  {r.get('result', ''):6}  "
+                  f"{r.get('attempt', 1):>3}  "
                   f"{r.get('runner', ''):8}  {r.get('error', '')}")
 
     def remove_task(self):

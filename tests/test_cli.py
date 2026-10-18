@@ -17,7 +17,7 @@ import pytest
 
 pytest.importorskip("asyncssh")
 
-from test_sftp_integration import PASSWORD, USER, SFTPServer  # noqa: E402
+from sftp_server import PASSWORD, USER, SFTPServer  # noqa: E402
 
 from sftp_pilot.config_manager import ConfigManager  # noqa: E402
 from sftp_pilot.console import _parse_days  # noqa: E402
@@ -44,7 +44,7 @@ def setup(tmp_path):
         cfg = cfg_dir / "config.ini"
         cfg.write_text(
             f"[DEFAULT]\nhost = 127.0.0.1\nport = {server.port}\nusername = {USER}\n"
-            f"password = {PASSWORD}\nknown_hosts_file = known_hosts\ntimeout = 10\n"
+            f"password = {PASSWORD}\nknown_hosts_file = known_hosts\ntimeout = 30\n"
             f"[SCHEDULING]\nretries = 0\n[LOGGING]\nlog_file = run.log\n", encoding="utf-8")
         yield cfg, cfg_dir, remote, elsewhere
 
@@ -85,10 +85,11 @@ def test_two_processes_run_a_task_once(setup, tmp_path):
 
     env = dict(os.environ, PYTHONPATH=str(REPO))
     procs = [subprocess.Popen([sys.executable, "-m", "sftp_pilot", "-c", str(cfg), "--run-due"],
-                              cwd=elsewhere, env=env, stdout=subprocess.DEVNULL,
-                              stderr=subprocess.DEVNULL) for _ in range(2)]
-    codes = [p.wait(120) for p in procs]
-    assert codes == [0, 0]
+                              cwd=elsewhere, env=env, stdout=subprocess.PIPE,
+                              stderr=subprocess.STDOUT, text=True) for _ in range(2)]
+    outputs = [p.communicate(timeout=120)[0] for p in procs]
+    codes = [p.returncode for p in procs]
+    assert codes == [0, 0], "\n---\n".join(outputs)
 
     history = [json.loads(line) for line in
                (cfg_dir / "scheduled_tasks.history.jsonl").read_text().splitlines()]

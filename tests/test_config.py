@@ -44,7 +44,9 @@ def test_unsupported_values_are_rejected(tmp_path, line):
 
 def test_example_config_parses():
     example = Path(__file__).resolve().parent.parent / "sftp_pilot" / "example_config.ini"
-    ConfigManager(str(example)).get_connection_details()
+    manager = ConfigManager(str(example))
+    manager.get_connection_details()
+    assert manager.server_names() == ["default"]  # the [server:backup] example stays commented out
 
 
 def test_init_config_writes_once(tmp_path):

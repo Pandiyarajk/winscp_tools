@@ -5,3 +5,5 @@
 pytest>=8
 # asyncssh provides the throwaway SFTP server the integration tests run against
 asyncssh>=2.14
+# the keyring tests use an in-memory backend, and one opt-in test the real OS keyring
+keyring>=24

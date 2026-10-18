@@ -35,9 +35,9 @@ def run_task(handler: SFTPHandler, task: ScheduledTask) -> bool:
             so it reaches the task's error message and the run history
     """
     if task.task_type == TaskType.UPLOAD:
-        ok = handler.upload_file(task.source_path, task.dest_path)
+        ok = handler.upload(task.source_path, task.dest_path).ok  # file, folder or pattern
     elif task.task_type == TaskType.DOWNLOAD:
-        ok = handler.download_file(task.source_path, task.dest_path)
+        ok = handler.download(task.source_path, task.dest_path).ok
     elif task.task_type == TaskType.DELETE:
         ok = handler.delete_file(task.source_path)
     else:
@@ -48,22 +48,23 @@ def run_task(handler: SFTPHandler, task: ScheduledTask) -> bool:
 
 
 def make_task_executor(
-    get_connection_details: Callable[[], Dict[str, Any]],
+    get_connection_details: Callable[[str], Dict[str, Any]],
     handler_factory: Callable[[Dict[str, Any]], SFTPHandler] = SFTPHandler.from_config,
 ) -> Callable[[ScheduledTask], bool]:
     """
     Build a scheduler executor that connects, runs one task and disconnects
 
     Args:
-        get_connection_details: Returns current connection details (read per run,
-            so a config reload takes effect without restarting the scheduler)
+        get_connection_details: Called with a task's server name ('' = default); returns
+            connection details (read per run, so a config reload takes effect
+            without restarting the scheduler)
         handler_factory: Builds a handler from connection details
 
     Returns:
         A callable suitable for TaskScheduler.set_task_executor
     """
     def execute(task: ScheduledTask) -> bool:
-        handler = handler_factory(get_connection_details())
+        handler = handler_factory(get_connection_details(task.server))
         if not handler.connect():
             raise ConnectionError(f"Could not connect for scheduled task: {handler.last_error}")
         try:
