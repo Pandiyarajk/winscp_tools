@@ -8,11 +8,11 @@ Date: Oct-18-2026
 
 import gc
 import time
-from tkinter import messagebox
 
 import pytest
 
-tk = pytest.importorskip("tkinter")
+tk = pytest.importorskip("tkinter")  # absent on a minimal Linux install: skip the module, do not fail
+messagebox = pytest.importorskip("tkinter.messagebox")
 pytest.importorskip("asyncssh")
 
 from sftp_server import PASSWORD, USER  # noqa: E402
