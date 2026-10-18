@@ -35,7 +35,8 @@ classifiers = [
 dependencies = ["paramiko>=3.4"]
 
 [project.optional-dependencies]
-dev = ["pytest>=8", "asyncssh>=2.14"]
+keyring = ["keyring>=24"]
+dev = ["pytest>=8", "asyncssh>=2.14", "keyring>=24"]
 
 [project.scripts]
 sftp-pilot = "sftp_pilot.cli:main"

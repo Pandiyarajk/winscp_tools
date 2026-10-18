@@ -12,6 +12,51 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [2.2.0] - 2026-10-18
+
+Usability: several servers, whole folders, a remote browser, trust and keyring.
+
+### Added
+- **Several servers:** `[server:<name>]` sections next to `[DEFAULT]`. The GUI
+  (Connection and Scheduler tabs) and the console pick a server, each scheduled
+  task remembers its server, `--run-due` connects each task to its own, and the
+  history and task lists show it. Single-server configs and 2.1 task files load
+  unchanged.
+- **Folders and patterns:** upload or download a folder (recursively) or a
+  pattern such as `*.csv`, in the GUI, the console and scheduled tasks. One bad
+  file does not stop the others; the result reports `N of M failed`. Symbolic
+  links are skipped, and a file name sent by a server that could point outside
+  the destination is refused. Wildcard delete is deliberately not offered.
+- **Remote file browser** (GUI): a Browse remote button beside every remote
+  path, plus Folder buttons for local folders.
+- **Host-key fingerprint prompt:** `host_key_policy = ask` shows the SHA256
+  fingerprint of a new server and trusts it only on a yes. Scheduled and
+  `--run-due` runs cannot ask and refuse unknown servers. `accept_new` now logs
+  the fingerprint it trusted.
+- **OS keyring (optional):** `pip install sftp-pilot[keyring]`,
+  `sftp-pilot --store-password [--server NAME]`, then `password_store = keyring`
+  in that server's section. Also `--store-passphrase` and `--forget-secrets`.
+  Opt-in per server so an unattended run never waits on a locked keyring.
+  Order of use: environment variable, keyring, file.
+
+### Changed
+- **A named server never inherits credentials from `[DEFAULT]`.** configparser's
+  default inheritance is switched off, so a server that only changed its host
+  cannot receive another server's password. `protocol`, `host_key_policy`,
+  `known_hosts_file`, `timeout` and `atomic_uploads` are still shared.
+- Environment passwords are per server: `SFTP_PILOT_PASSWORD` is for the default
+  server only; a named server uses `SFTP_PILOT_PASSWORD_<NAME>`.
+- Other sections (`[PATHS]`, `[SCHEDULING]`, `[LOGGING]`) no longer inherit keys
+  from `[DEFAULT]`.
+- When a password is configured and no key file, the SSH agent and `~/.ssh` keys
+  are no longer offered first: it was slow, and servers with a low `MaxAuthTries`
+  could refuse the login before the password was tried.
+- API: `make_task_executor`'s callback now receives the task's server name;
+  `SFTPHandler.upload()` and `download()` (file, folder or pattern) return a
+  `BulkResult`; `ConfigManager.get_connection_details(server="")`.
+
+---
+
 ## [2.1.0] - 2026-10-18
 
 Safer transfers and unattended runs.

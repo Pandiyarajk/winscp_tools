@@ -14,6 +14,10 @@ variables SFTP_PILOT_PASSWORD and SFTP_PILOT_KEY_PASSPHRASE override
 SFTP_PILOT_PASSWORD_PROD and SFTP_PILOT_KEY_PASSPHRASE_PROD. A variable meant
 for one server is never used for another.
 
+A server can also keep them in the OS keyring: `password_store = keyring`
+(opt-in per server; never inherited). The order is then: environment variable,
+keyring entry, value in the file.
+
 Author: Pandiyaraj Karuppasamy
 Date: Oct-19-2025
 Modified: Oct-18-2026
@@ -28,6 +32,7 @@ PASSWORD_ENV = "SFTP_PILOT_PASSWORD"
 PASSPHRASE_ENV = "SFTP_PILOT_KEY_PASSPHRASE"
 
 HOST_KEY_POLICIES = ("accept_new", "ask", "reject", "auto_add")
+PASSWORD_STORES = ("file", "keyring")
 
 DEFAULT_SERVER = "default"
 SERVER_PREFIX = "server:"
@@ -137,10 +142,45 @@ class ConfigManager:
             raise ValueError(raw)
         return states[raw.lower()]
 
+    def identity(self, server: str = "") -> Dict[str, Any]:
+        """
+        Who and where a server is, without reading any secret
+
+        Args:
+            server: Server name; '' or 'default' for the [DEFAULT] server
+
+        Returns:
+            Dictionary with server, section, host, port and username
+
+        Raises:
+            ValueError: If the server is unknown or lacks host or username
+        """
+        section = self._section_for(server)
+        name = DEFAULT_SERVER if section == "DEFAULT" else section[len(SERVER_PREFIX):]
+        for required in ('host', 'username'):
+            if not self.config.has_option(section, required):
+                raise ValueError(f"[{section}] needs '{required}'")
+        return {
+            'server': name,
+            'section': section,
+            'host': self.config.get(section, 'host'),
+            'port': self._typed(section, 'port', 22, int),
+            'username': self.config.get(section, 'username'),
+        }
+
+    def _stored_secret(self, kind: str, who: Dict[str, Any]) -> str:
+        """Value from the keyring for a server that uses password_store = keyring ('' if none)"""
+        from . import keystore
+        try:
+            found = keystore.get_secret(kind, who['username'], who['host'], who['port'])
+        except keystore.KeyringUnavailable as e:
+            raise ValueError(f"[{who['section']}] uses password_store = keyring, but {e}") from None
+        return found or ''
+
     def get_connection_details(self, server: str = "") -> Dict[str, Any]:
         """
         Get connection details for a server, with secrets taken from the
-        environment when the matching variable is set.
+        environment, then the keyring (when the server opts in), then the file.
 
         Args:
             server: Server name; '' or 'default' for the [DEFAULT] server
@@ -151,8 +191,8 @@ class ConfigManager:
         Raises:
             ValueError: If the server is unknown or a setting is unsupported
         """
-        section = self._section_for(server)
-        name = DEFAULT_SERVER if section == "DEFAULT" else section[len(SERVER_PREFIX):]
+        who = self.identity(server)
+        section, name = who['section'], who['server']
 
         protocol = self._opt(section, 'protocol', 'sftp').strip().lower()
         if protocol != 'sftp':
@@ -164,22 +204,31 @@ class ConfigManager:
                 f"Unsupported host_key_policy '{policy}': use one of {', '.join(HOST_KEY_POLICIES)}"
             )
 
-        for required in ('host', 'username'):
-            if not self.config.has_option(section, required):
-                raise ValueError(f"[{section}] needs '{required}'")
+        store = self.config.get(section, 'password_store', fallback='file').strip().lower()
+        if store not in PASSWORD_STORES:
+            raise ValueError(f"[{section}] password_store = {store!r}: use one of {', '.join(PASSWORD_STORES)}")
 
         suffix = env_suffix(name)
+        key_path = os.path.expanduser(self.config.get(section, 'private_key_path', fallback=''))
+        password = os.environ.get(PASSWORD_ENV + suffix, '')
+        passphrase = os.environ.get(PASSPHRASE_ENV + suffix, '')
+        if store == 'keyring':
+            password = password or self._stored_secret('password', who)
+            passphrase = passphrase or self._stored_secret('passphrase', who)
+            if not password and not key_path:
+                flag = '' if name == DEFAULT_SERVER else f' --server {name}'
+                raise ValueError(f"[{section}] uses password_store = keyring but no password is stored "
+                                 f"for {who['username']}@{who['host']}:{who['port']}. "
+                                 f"Run: sftp-pilot --store-password{flag}")
         return {
             'server': name,
             'protocol': protocol,
-            'host': self.config.get(section, 'host'),
-            'port': self._typed(section, 'port', 22, int),
-            'username': self.config.get(section, 'username'),
-            'password': os.environ.get(PASSWORD_ENV + suffix)
-            or self.config.get(section, 'password', fallback=''),
-            'private_key_path': os.path.expanduser(self.config.get(section, 'private_key_path', fallback='')),
-            'private_key_passphrase': os.environ.get(PASSPHRASE_ENV + suffix)
-            or self.config.get(section, 'private_key_passphrase', fallback=''),
+            'host': who['host'],
+            'port': who['port'],
+            'username': who['username'],
+            'password': password or self.config.get(section, 'password', fallback=''),
+            'private_key_path': key_path,
+            'private_key_passphrase': passphrase or self.config.get(section, 'private_key_passphrase', fallback=''),
             'host_key_policy': policy,
             'known_hosts_file': self.resolve(self._opt(section, 'known_hosts_file', 'known_hosts')),
             'timeout': self._typed(section, 'timeout', 30.0, float),

@@ -7,6 +7,7 @@ Modified: Oct-18-2026
 """
 
 import argparse
+import getpass
 import logging
 import os
 import sys
@@ -72,6 +73,57 @@ def init_config(config_path: str) -> int:
     with open(config_path, 'x', encoding='utf-8') as f:
         f.write(template)
     print(f"Wrote {os.path.abspath(config_path)}: fill in host, username and authentication.")
+    return 0
+
+
+def manage_secrets(config_path: str, server: str, store_password: bool, store_passphrase: bool,
+                   forget: bool) -> int:
+    """
+    Store or remove a server's password or key passphrase in the OS keyring
+
+    Args:
+        config_path: Configuration file
+        server: Server name ('' for the default server)
+        store_password: Prompt for a password and store it
+        store_passphrase: Prompt for a key passphrase and store it
+        forget: Remove both stored secrets of the server
+
+    Returns:
+        0 on success, 1 when nothing was stored (empty or mismatched input),
+        2 when the config or the keyring could not be used
+    """
+    from . import keystore
+    from .config_manager import ConfigManager
+
+    try:
+        who = ConfigManager(config_path).identity(server)
+    except Exception as e:
+        print(f"Cannot use configuration {os.path.abspath(config_path)}: {e}", file=sys.stderr)
+        return 2
+    target = f"{who['username']}@{who['host']}:{who['port']}"
+    try:
+        if forget:
+            removed = [kind for kind in keystore.KINDS
+                       if keystore.delete_secret(kind, who['username'], who['host'], who['port'])]
+            print(f"Removed from the keyring for {target}: {', '.join(removed) or 'nothing was stored'}")
+            return 0
+        kind = "password" if store_password else "passphrase"
+        secret = getpass.getpass(f"{kind.capitalize()} for {target} (not shown): ")
+        if not secret:
+            print("Nothing entered; nothing stored.", file=sys.stderr)
+            return 1
+        if getpass.getpass("Again: ") != secret:
+            print("The two entries differ; nothing stored.", file=sys.stderr)
+            return 1
+        keystore.set_secret(kind, who['username'], who['host'], who['port'], secret)
+    except keystore.KeyringUnavailable as e:
+        print(str(e), file=sys.stderr)
+        return 2
+    print(f"Stored the {kind} for {target} in the keyring.")
+    print(f"Make the server use it by adding to [{who['section']}] in {config_path}:")
+    print("    password_store = keyring")
+    print("and remove the plain-text value from the file. The keyring entry wins over the file; "
+          "an environment variable wins over both.")
     return 0
 
 
@@ -172,6 +224,7 @@ Examples:
   sftp-pilot -c D:\\cfg\\prod.ini   # use another config file
   sftp-pilot -c D:\\cfg\\prod.ini --run-due    # from Task Scheduler / cron
   sftp-pilot --history 50           # recent task runs
+  sftp-pilot --store-password --server backup   # keep its password in the OS keyring
 
 {WARNING}"""
     )
@@ -185,6 +238,15 @@ Examples:
                             'Exit code 0: all ran or none due; 1: a task failed; 2: config or lock error')
     group.add_argument('--history', nargs='?', type=int, const=20, metavar='N',
                        help='Print the last N task runs (default 20) and exit')
+    group.add_argument('--store-password', action='store_true',
+                       help='Store a server password in the OS keyring (prompted, not echoed) and exit; '
+                            'needs sftp-pilot[keyring]')
+    group.add_argument('--store-passphrase', action='store_true',
+                       help='Store a server key passphrase in the OS keyring and exit')
+    group.add_argument('--forget-secrets', action='store_true',
+                       help="Remove a server's password and passphrase from the OS keyring and exit")
+    parser.add_argument('--server', default='', metavar='NAME',
+                        help='With the keyring options: which server (default: the [DEFAULT] server)')
     parser.add_argument('--task', default='', metavar='ID',
                         help='With --history: only this task (ID or its first characters)')
     parser.add_argument('-c', '--config', default='config.ini',
@@ -197,6 +259,9 @@ Examples:
     args = parser.parse_args(argv)
     if args.init_config:
         return init_config(args.config)
+    if args.store_password or args.store_passphrase or args.forget_secrets:
+        return manage_secrets(args.config, args.server, args.store_password, args.store_passphrase,
+                              args.forget_secrets)
     if args.tasks_file is None:
         # Beside the config, not the working directory: Task Scheduler starts
         # programs in System32 and cron in the home folder.
