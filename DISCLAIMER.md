@@ -20,6 +20,10 @@ A wrong path or a wrong server can destroy data.
   time it is seen. Verify the fingerprint of a new server through another
   channel if that first connection matters.
 
+- The Windows program is built from the same source with PyInstaller and is
+  **not code-signed**. Verify the SHA256 on the release page before running it,
+  and expect some antivirus products to be suspicious of it.
+
 This file is a plain-language summary. The [MIT License](LICENSE) is the
 governing text and prevails wherever the two differ.
 
