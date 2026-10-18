@@ -261,6 +261,16 @@ def test_pid_alive():
     assert not pid_alive(2_000_000_000)
 
 
+def test_pid_alive_sees_a_live_child_and_a_dead_one():
+    proc = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
+    try:
+        assert pid_alive(proc.pid)
+    finally:
+        proc.kill()
+        proc.wait(10)
+    assert not pid_alive(proc.pid)
+
+
 def test_stop_is_prompt_and_thread_runs_tasks(tmp_path):
     s = TaskScheduler(str(tmp_path / "t.json"), check_interval=30)
     ran = []
