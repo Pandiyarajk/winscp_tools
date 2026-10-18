@@ -29,6 +29,21 @@ Usability: several servers, whole folders, a remote browser, trust and keyring.
   the destination is refused. Wildcard delete is deliberately not offered.
 - **Remote file browser** (GUI): a Browse remote button beside every remote
   path, plus Folder buttons for local folders.
+- **A redesigned window:** a consistent flat theme with a **dark mode** that
+  follows Windows (switch from the status bar; remembered with the window size
+  in `ui_state.json`), an app icon, a status bar showing the connection, task
+  counts and scheduler state (it was crushed to a sliver before), forms that use
+  the window width, a task table whose columns share the width instead of
+  cutting off Status, coloured rows for failed, running and retrying tasks and
+  for failed runs, sortable tables, a Remove button that is only enabled when a
+  task is selected, a right-click menu, Show history, run details on
+  double-click, and a log view with coloured levels, a filter, Copy, Save and
+  Clear (capped at 5000 lines; the pane used to grow without limit). The window
+  is sized to fit the screen. The transfer progress bar and Cancel button sit
+  above the status bar on every tab instead of inside File Operations, where
+  they were cut off on small windows. Upload, Download, Delete and Browse remote
+  are disabled until you connect, hints wrap instead of being clipped, and
+  removing a task asks first.
 - **Host-key fingerprint prompt:** `host_key_policy = ask` shows the SHA256
   fingerprint of a new server and trusts it only on a yes. Scheduled and
   `--run-due` runs cannot ask and refuse unknown servers. `accept_new` now logs

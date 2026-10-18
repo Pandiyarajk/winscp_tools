@@ -40,6 +40,9 @@ version 1.1.0; see [CHANGE_LOG.md](https://github.com/Pandiyarajk/sftp-pilot/blo
 - **Folders and patterns:** upload or download a whole folder, or `*.csv`; one bad file
   does not stop the rest
 - **Remote file browser** in the GUI, next to every remote path
+- **A clearer window:** light and dark look (follows Windows, one click to switch),
+  a status bar with the connection and task counts, coloured task and history rows,
+  sortable tables and a filterable log
 - **Several servers** in one config; each scheduled task remembers its server
 - **Host-key fingerprint prompt** for new servers (`host_key_policy = ask`)
 - Secrets can come from environment variables or the OS keyring (opt-in per server)
@@ -245,8 +248,10 @@ Things to know:
 ### GUI
 
 - **Connection:** pick the server, then host, port, user, password or key.
-  Fields start from the config file; **Reload Config** reads it again. A new
-  server with `host_key_policy = ask` shows its fingerprint first.
+  Fields start from the config file; **Reload config** reads it again. A new
+  server with `host_key_policy = ask` shows its fingerprint first. The banner
+  at the top and the status bar show whether you are connected; Enter in any
+  field connects, and **Show** reveals the password.
 - **File Operations:** upload (a remote path ending in `/` keeps the local file
   name), download, delete (asks first). **Browse remote...** opens a file
   browser on the server. One transfer runs at a time, the window stays
@@ -254,10 +259,21 @@ Things to know:
 - **Scheduler:** add tasks (once, every N minutes, or daily at a time with
   optional weekdays), start or stop the scheduler, remove the selected tasks.
   The list refreshes every few seconds and shows each task's schedule, next run
-  and status (`retrying (1 failed)`, `pending (last run failed)`, ...).
+  and status (`retrying (1 failed)`, `pending (last run failed)`, ...), with
+  failed rows in red, running in blue and retrying in amber. Click a heading to
+  sort; right-click a task (or press Delete) to remove it or open its history.
 - **History:** every scheduled run, from this window, the console or
-  `--run-due`, with its result, attempt, duration and error.
-- **Logs:** everything that is written to the log.
+  `--run-due`, with its result, attempt, duration and error. Double-click a row
+  for the full message.
+- **Logs:** everything that is written to the log, with warnings and errors
+  coloured. Filter to warnings and errors, follow new lines, **Copy** or
+  **Save...** the view, or **Clear** it.
+
+The status bar shows the connection, the number of tasks (and how many failed)
+and whether the scheduler is running. The link at its right switches between
+the light and dark look; the choice and the window size are remembered in
+`ui_state.json` next to your `config.ini`. Shortcuts: Ctrl+1 to Ctrl+5 switch
+tabs, F5 refreshes the task list and history.
 
 Scheduled tasks connect with the settings saved in the config file, not with
 whatever is typed in the Connection tab.

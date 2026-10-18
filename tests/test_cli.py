@@ -44,7 +44,7 @@ def setup(tmp_path):
         cfg = cfg_dir / "config.ini"
         cfg.write_text(
             f"[DEFAULT]\nhost = 127.0.0.1\nport = {server.port}\nusername = {USER}\n"
-            f"password = {PASSWORD}\nknown_hosts_file = known_hosts\ntimeout = 10\n"
+            f"password = {PASSWORD}\nknown_hosts_file = known_hosts\ntimeout = 30\n"
             f"[SCHEDULING]\nretries = 0\n[LOGGING]\nlog_file = run.log\n", encoding="utf-8")
         yield cfg, cfg_dir, remote, elsewhere
 

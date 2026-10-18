@@ -16,6 +16,7 @@ from datetime import datetime
 from tkinter import messagebox, ttk
 from typing import Any, Callable, List, Optional
 
+from . import theme
 from .sftp_handler import RemoteEntry, SFTPHandler, has_wildcard
 
 MODE_FILE = "file"      # pick a file
@@ -77,7 +78,9 @@ class RemoteBrowser(tk.Toplevel):
         """
         super().__init__(parent)
         self.title(title)
-        self.geometry("640x460")
+        width, height = theme.scale(parent, 680), theme.scale(parent, 480)
+        self.geometry(self._centered(parent, width, height))
+        self.minsize(theme.scale(parent, 520), theme.scale(parent, 360))
         self.transient(parent)  # type: ignore[arg-type]  # the parent is the app's root window
         self.app = app
         self.handler = handler
@@ -103,9 +106,11 @@ class RemoteBrowser(tk.Toplevel):
         frame.pack(fill="both", expand=True, padx=8, pady=4)
         self.tree = ttk.Treeview(frame, columns=("name", "size", "modified"), show="headings",
                                  selectmode="browse")
-        for col, text, width in (("name", "Name", 340), ("size", "Size", 90), ("modified", "Modified", 140)):
-            self.tree.heading(col, text=text)
-            self.tree.column(col, width=width, anchor="e" if col == "size" else "w")
+        for col, text, col_width in (("name", "Name", 360), ("size", "Size", 90), ("modified", "Modified", 140)):
+            anchor = "e" if col == "size" else "w"  # headings line up with their cells
+            self.tree.heading(col, text=text, anchor=anchor)
+            self.tree.column(col, width=theme.scale(parent, col_width), anchor=anchor,
+                             stretch=(col == "name"))
         scrollbar = ttk.Scrollbar(frame, orient="vertical", command=self.tree.yview)
         scrollbar.pack(side="right", fill="y")
         self.tree.configure(yscrollcommand=scrollbar.set)
@@ -113,22 +118,35 @@ class RemoteBrowser(tk.Toplevel):
         self.tree.bind("<Double-1>", self._on_double_click)
         self.tree.bind("<Return>", self._on_double_click)
 
-        self.status = ttk.Label(self, text="", foreground="gray")
+        self.status = ttk.Label(self, text="", style="Muted.TLabel")
         self.status.pack(fill="x", padx=10)
         buttons = ttk.Frame(self)
         buttons.pack(fill="x", padx=8, pady=8)
         ttk.Button(buttons, text="Cancel", command=self.close).pack(side="right")
-        ttk.Button(buttons, text="Select", command=self.select).pack(side="right", padx=6)
+        ttk.Button(buttons, text="Select", style="Primary.TButton", command=self.select).pack(side="right", padx=6)
         hint = {MODE_FILE: "Select a file", MODE_FOLDER: "Select a folder (or the open one)",
                 MODE_ANY: "Select a file or a folder"}[mode]
-        ttk.Label(buttons, text=hint, foreground="gray").pack(side="left")
+        ttk.Label(buttons, text=hint, style="Muted.TLabel").pack(side="left")
 
         self.protocol("WM_DELETE_WINDOW", self.close)
+        self.bind("<Escape>", lambda _e: self.close())
+        theme.set_dark_titlebar(self, getattr(app, "theme_mode", "light") == "dark")
+        self.tree.focus_set()
         self.navigate(start)
         try:
             self.grab_set()
         except tk.TclError:
             pass  # a window that is not viewable yet cannot grab; the dialog still works
+
+    @staticmethod
+    def _centered(parent: tk.Misc, width: int, height: int) -> str:
+        """Geometry that puts the dialog over the middle of its parent window, kept on the screen"""
+        try:
+            x = parent.winfo_rootx() + (parent.winfo_width() - width) // 2
+            y = parent.winfo_rooty() + (parent.winfo_height() - height) // 2
+            return theme.clamp_to_screen(parent, f"{width}x{height}+{x}+{y}", bottom_margin=60)
+        except tk.TclError:
+            return f"{width}x{height}"
 
     # ----- navigation -------------------------------------------------------
 

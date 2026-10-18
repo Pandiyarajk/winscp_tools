@@ -48,8 +48,8 @@ def tk_root():
     """
     try:
         root = tk.Tk()
-    except tk.TclError:
-        pytest.skip("no display available")
+    except tk.TclError as e:
+        pytest.skip(f"no display available: {e}")
     root.withdraw()
     gc.disable()
     yield root

@@ -47,10 +47,11 @@ Issues = "https://github.com/Pandiyarajk/sftp-pilot/issues"
 Changelog = "https://github.com/Pandiyarajk/sftp-pilot/blob/main/CHANGE_LOG.md"
 
 [tool.setuptools]
-packages = ["sftp_pilot"]
+packages = ["sftp_pilot", "sftp_pilot.assets"]
 
 [tool.setuptools.package-data]
 sftp_pilot = ["example_config.ini"]
+"sftp_pilot.assets" = ["icon.png", "icon.ico"]
 
 [tool.setuptools.dynamic]
 version = { attr = "sftp_pilot.__version__" }
