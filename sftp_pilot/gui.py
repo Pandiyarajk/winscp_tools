@@ -20,11 +20,14 @@ from typing import Callable, Optional
 
 from .config_manager import ConfigManager
 from .runner import make_task_executor
-from .scheduler import ScheduledTask, TaskScheduler, TaskType
+from .scheduler import WEEKDAY_NAMES, ScheduledTask, TaskScheduler, TaskType
 from .sftp_handler import CANCELLED, SFTPHandler
 
 UI_POLL_MS = 100
 TASKS_REFRESH_MS = 5000
+SCHEDULE_ONCE = "Once"
+SCHEDULE_INTERVAL = "Every N minutes"
+SCHEDULE_DAILY = "Daily at a time"
 
 
 class SFTPPilotGUI:
@@ -61,6 +64,7 @@ class SFTPPilotGUI:
 
         self.load_configuration()
         self.refresh_tasks()
+        self.refresh_history()
 
     # ----- thread hand-off ------------------------------------------------
 
@@ -80,6 +84,7 @@ class SFTPPilotGUI:
 
     def _periodic_refresh(self) -> None:
         self.refresh_tasks()
+        self.refresh_history()
         if self.sftp_handler and not self.sftp_handler.is_connected():
             self.logger.warning("Connection lost")
             self.sftp_handler = None
@@ -140,6 +145,7 @@ class SFTPPilotGUI:
         self.create_connection_tab()
         self.create_file_operations_tab()
         self.create_scheduler_tab()
+        self.create_history_tab()
         self.create_log_tab()
 
         self.status_bar = tk.Label(self.root, text="Disconnected", bd=1, relief=tk.SUNKEN, anchor=tk.W)
@@ -267,19 +273,33 @@ class SFTPPilotGUI:
         self.task_dest_entry = ttk.Entry(add_frame, width=50)
         self.task_dest_entry.grid(row=2, column=1, padx=5, pady=5)
 
-        ttk.Label(add_frame, text="Run In (minutes):").grid(row=3, column=0, sticky='w', pady=5)
-        self.task_delay_entry = ttk.Entry(add_frame, width=12)
+        ttk.Label(add_frame, text="Schedule:").grid(row=3, column=0, sticky='w', pady=5)
+        self.schedule_kind_var = tk.StringVar(value=SCHEDULE_ONCE)
+        schedule_combo = ttk.Combobox(add_frame, textvariable=self.schedule_kind_var,
+                                      values=[SCHEDULE_ONCE, SCHEDULE_INTERVAL, SCHEDULE_DAILY],
+                                      state="readonly", width=37)
+        schedule_combo.grid(row=3, column=1, padx=5, pady=5, sticky='w')
+        schedule_combo.bind("<<ComboboxSelected>>", lambda _e: self._update_schedule_fields())
+
+        when = ttk.Frame(add_frame)
+        when.grid(row=4, column=1, columnspan=2, sticky='w')
+        self.task_delay_label = ttk.Label(when, text="Start in (minutes):")
+        self.task_delay_entry = ttk.Entry(when, width=8)
         self.task_delay_entry.insert(0, "5")
-        self.task_delay_entry.grid(row=3, column=1, padx=5, pady=5, sticky='w')
-
-        self.recurring_var = tk.BooleanVar(value=False)
-        ttk.Checkbutton(add_frame, text="Recurring Task",
-                        variable=self.recurring_var).grid(row=4, column=1, sticky='w', pady=5)
-
-        ttk.Label(add_frame, text="Interval (minutes):").grid(row=5, column=0, sticky='w', pady=5)
-        self.task_interval_entry = ttk.Entry(add_frame, width=12)
+        self.task_interval_label = ttk.Label(when, text="Every (minutes):")
+        self.task_interval_entry = ttk.Entry(when, width=8)
         self.task_interval_entry.insert(0, "60")
-        self.task_interval_entry.grid(row=5, column=1, padx=5, pady=5, sticky='w')
+        self.task_time_label = ttk.Label(when, text="At (HH:MM, 24 h):")
+        self.task_time_entry = ttk.Entry(when, width=8)
+        self.task_time_entry.insert(0, "02:00")
+        self.weekday_frame = ttk.Frame(when)
+        self.weekday_vars = []
+        for i, name in enumerate(WEEKDAY_NAMES):
+            var = tk.BooleanVar(value=False)
+            ttk.Checkbutton(self.weekday_frame, text=name, variable=var).grid(row=0, column=i)
+            self.weekday_vars.append(var)
+        ttk.Label(self.weekday_frame, text="(none ticked = every day)").grid(row=0, column=7, padx=5)
+        self._update_schedule_fields()
 
         ttk.Button(add_frame, text="Add Task", command=self.add_scheduled_task).grid(row=6, column=1, pady=10)
 
@@ -292,11 +312,11 @@ class SFTPPilotGUI:
         btn_frame = ttk.Frame(list_frame)
         btn_frame.pack(side='bottom', fill='x', pady=5)
 
-        columns = ('ID', 'Type', 'Source', 'Destination', 'Next Run', 'Status')
+        columns = ('ID', 'Type', 'Source', 'Destination', 'Schedule', 'Next Run', 'Status')
         self.tasks_tree = ttk.Treeview(list_frame, columns=columns, show='headings', height=8)
         for col in columns:
             self.tasks_tree.heading(col, text=col)
-            self.tasks_tree.column(col, width=150)
+            self.tasks_tree.column(col, width=130)
 
         scrollbar = ttk.Scrollbar(list_frame, orient='vertical', command=self.tasks_tree.yview)
         scrollbar.pack(side='right', fill='y')
@@ -311,6 +331,72 @@ class SFTPPilotGUI:
 
         self.scheduler_status_label = ttk.Label(control_frame, text="Scheduler: Stopped")
         self.scheduler_status_label.pack(side='left', padx=5)
+
+    def _update_schedule_fields(self) -> None:
+        """Show only the inputs the chosen schedule uses"""
+        for widget in (self.task_delay_label, self.task_delay_entry, self.task_interval_label,
+                       self.task_interval_entry, self.task_time_label, self.task_time_entry,
+                       self.weekday_frame):
+            widget.grid_forget()
+        kind = self.schedule_kind_var.get()
+        if kind in (SCHEDULE_ONCE, SCHEDULE_INTERVAL):
+            self.task_delay_label.grid(row=0, column=0, sticky='w', padx=5)
+            self.task_delay_entry.grid(row=0, column=1, sticky='w')
+        if kind == SCHEDULE_INTERVAL:
+            self.task_interval_label.grid(row=0, column=2, sticky='w', padx=(15, 5))
+            self.task_interval_entry.grid(row=0, column=3, sticky='w')
+        if kind == SCHEDULE_DAILY:
+            self.task_time_label.grid(row=0, column=0, sticky='w', padx=5)
+            self.task_time_entry.grid(row=0, column=1, sticky='w')
+            self.weekday_frame.grid(row=1, column=0, columnspan=4, sticky='w', pady=(5, 0))
+
+    def create_history_tab(self):
+        """Create the run history tab"""
+        tab = ttk.Frame(self.notebook)
+        self.notebook.add(tab, text="History")
+
+        top = ttk.Frame(tab)
+        top.pack(fill='x', padx=10, pady=(10, 0))
+        self.history_selected_only = tk.BooleanVar(value=False)
+        ttk.Checkbutton(top, text="Only the task selected on the Scheduler tab",
+                        variable=self.history_selected_only,
+                        command=self.refresh_history).pack(side='left')
+        ttk.Button(top, text="Refresh", command=self.refresh_history).pack(side='right')
+
+        columns = ('Time', 'Task', 'Type', 'Result', 'Try', 'Seconds', 'Runner', 'Error')
+        widths = (140, 80, 70, 60, 40, 70, 70, 400)
+        frame = ttk.Frame(tab)
+        frame.pack(fill='both', expand=True, padx=10, pady=10)
+        self.history_tree = ttk.Treeview(frame, columns=columns, show='headings')
+        for col, width in zip(columns, widths):
+            self.history_tree.heading(col, text=col)
+            self.history_tree.column(col, width=width, stretch=(col == 'Error'))
+        scrollbar = ttk.Scrollbar(frame, orient='vertical', command=self.history_tree.yview)
+        scrollbar.pack(side='right', fill='y')
+        self.history_tree.configure(yscrollcommand=scrollbar.set)
+        self.history_tree.pack(side='left', fill='both', expand=True)
+        ttk.Label(tab, foreground='gray', text=(
+            "Runs by the GUI, the console and --run-due (Task Scheduler / cron) all appear here."
+        )).pack(fill='x', padx=12, pady=(0, 8))
+
+    def refresh_history(self) -> None:
+        """Reload the History tab from the shared history file"""
+        task_id = ""
+        if self.history_selected_only.get():
+            selection = self.tasks_tree.selection()
+            task_id = selection[0] if selection else "\0"  # nothing selected: show nothing
+        self.history_tree.delete(*self.history_tree.get_children())
+        for record in self.scheduler.read_history(task_id, limit=500):
+            self.history_tree.insert('', 'end', values=(
+                str(record.get('time', '')).replace('T', ' '),
+                str(record.get('task_id', ''))[:8],
+                record.get('type', ''),
+                record.get('result', ''),
+                record.get('attempt', 1),
+                record.get('duration_s', ''),
+                record.get('runner', ''),
+                record.get('error', ''),
+            ))
 
     def create_log_tab(self):
         """Create log viewer tab"""
@@ -513,21 +599,25 @@ class SFTPPilotGUI:
         """Add a new scheduled task"""
         try:
             task_type = TaskType(self.task_type_var.get())
-            delay_minutes = int(self.task_delay_entry.get())
-            recurring = self.recurring_var.get()
-            interval_minutes = int(self.task_interval_entry.get()) if recurring else 0
-            if delay_minutes < 0:
-                raise ValueError("Run In must not be negative")
-
-            scheduled_time = datetime.now() + timedelta(minutes=delay_minutes)
+            kind = self.schedule_kind_var.get()
+            options = {}
+            if kind == SCHEDULE_DAILY:
+                options['daily_time'] = self.task_time_entry.get().strip()
+                options['weekdays'] = [i for i, var in enumerate(self.weekday_vars) if var.get()]
+            else:
+                delay_minutes = int(self.task_delay_entry.get())
+                if delay_minutes < 0:
+                    raise ValueError("Start in must not be negative")
+                options['scheduled_time'] = datetime.now() + timedelta(minutes=delay_minutes)
+                if kind == SCHEDULE_INTERVAL:
+                    options['recurring'] = True
+                    options['interval_minutes'] = int(self.task_interval_entry.get())
             task = ScheduledTask(
                 task_id=str(uuid.uuid4()),
                 task_type=task_type,
                 source_path=self.task_source_entry.get().strip(),
                 dest_path=self.task_dest_entry.get().strip(),
-                scheduled_time=scheduled_time,
-                recurring=recurring,
-                interval_minutes=interval_minutes
+                **options,
             )
         except ValueError as e:
             messagebox.showerror("Invalid task", str(e))
@@ -535,15 +625,22 @@ class SFTPPilotGUI:
 
         if task_type == TaskType.DELETE and not messagebox.askyesno(
                 "Confirm scheduled delete",
-                f"This task will delete {task.source_path} on the server"
-                f"{' every %d minutes' % interval_minutes if recurring else ''}, unattended.\n\nAdd it?",
+                f"This task will delete {task.source_path} on the server, unattended "
+                f"({task.describe_schedule()}).\n\nAdd it?",
                 icon='warning', default='no'):
             return
 
-        self.scheduler.add_task(task)
+        try:
+            self.scheduler.add_task(task)
+        except (TimeoutError, RuntimeError) as e:
+            messagebox.showerror("Could not save task", str(e))
+            return
         self.refresh_tasks()
-        note = "" if self.scheduler.running else "\n\nThe scheduler is stopped: start it for the task to run."
-        messagebox.showinfo("Success", f"Task scheduled for {scheduled_time:%Y-%m-%d %H:%M}.{note}")
+        note = "" if self.scheduler.running else (
+            "\n\nThe scheduler in this window is stopped: start it, or let --run-due "
+            "(Task Scheduler / cron) run it.")
+        when = f"{task.next_run:%Y-%m-%d %H:%M}" if task.next_run else "?"
+        messagebox.showinfo("Success", f"Task scheduled ({task.describe_schedule()}), first run {when}.{note}")
 
     def refresh_tasks(self):
         """Refresh tasks list, keeping the selection"""
@@ -556,6 +653,7 @@ class SFTPPilotGUI:
                 task.task_type.value,
                 task.source_path[-40:],
                 task.dest_path[-40:] if task.dest_path else 'N/A',
+                task.describe_schedule(),
                 f"{task.next_run:%Y-%m-%d %H:%M}" if task.next_run else 'N/A',
                 task.describe_status()
             ))

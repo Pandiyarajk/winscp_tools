@@ -75,6 +75,76 @@ def init_config(config_path: str) -> int:
     return 0
 
 
+def run_due(config_path: str, tasks_file: str) -> int:
+    """
+    Run every due task once, for an external scheduler
+
+    Args:
+        config_path: Configuration file
+        tasks_file: Tasks file shared with the GUI and console
+
+    Returns:
+        0 when every task ran (or none was due), 1 when a task failed,
+        2 when the configuration or the tasks file could not be used
+    """
+    from .config_manager import ConfigManager
+    from .runner import make_task_executor
+    from .scheduler import TaskScheduler
+
+    log = logging.getLogger("sftp_pilot.run_due")
+    try:
+        cfg = ConfigManager(config_path)
+        cfg.get_connection_details()  # validate before touching any task
+        sched_cfg = cfg.get_scheduling_config()
+    except Exception as e:
+        log.error(f"Cannot use configuration {os.path.abspath(config_path)}: {e}")
+        return 2
+    if not sched_cfg['enabled']:
+        log.info("Scheduling is disabled ([SCHEDULING] enabled = false); nothing run")
+        return 0
+
+    scheduler = TaskScheduler(tasks_file, retries=sched_cfg['retries'],
+                              retry_delay=sched_cfg['retry_delay'], runner="run-due")
+    scheduler.set_task_executor(make_task_executor(cfg.get_connection_details))
+    try:
+        records = scheduler.run_due_tasks()
+    except (TimeoutError, RuntimeError) as e:
+        log.error(f"Cannot use tasks file {tasks_file}: {e}")
+        return 2
+
+    failed = [r for r in records if r['result'] != 'ok']
+    log.info(f"run-due: {len(records)} task(s) run, {len(failed)} failed")
+    return 1 if failed else 0
+
+
+def show_history(tasks_file: str, limit: int, task_id: str = "") -> int:
+    """
+    Print recent task runs, newest first
+
+    Args:
+        tasks_file: Tasks file whose history to read
+        limit: Number of runs to print
+        task_id: Only this task (ID or prefix)
+
+    Returns:
+        Process exit code
+    """
+    from .scheduler import TaskScheduler
+
+    records = TaskScheduler(tasks_file).read_history(task_id, max(1, limit))
+    if not records:
+        print("No task runs recorded yet.")
+        return 0
+    for r in records:
+        line = (f"{r.get('time', '?')}  {str(r.get('task_id', ''))[:8]}  {r.get('type', ''):8}  "
+                f"{r.get('result', ''):6}  try {r.get('attempt', 1)}  {r.get('duration_s', 0):>8}s  "
+                f"{r.get('runner', '')}")
+        if r.get('error'):
+            line += f"  {r['error']}"
+        print(line)
+    return 0
+
+
 def main(argv: Optional[List[str]] = None) -> int:
     """
     Parse arguments and start the chosen interface
@@ -95,6 +165,8 @@ Examples:
   sftp-pilot --console            # console menu
   sftp-pilot --init-config          # write a starter config.ini
   sftp-pilot -c D:\\cfg\\prod.ini   # use another config file
+  sftp-pilot -c D:\\cfg\\prod.ini --run-due    # from Task Scheduler / cron
+  sftp-pilot --history 50           # recent task runs
 
 {WARNING}"""
     )
@@ -103,16 +175,33 @@ Examples:
     group.add_argument('--console', action='store_true', help='Run console interface')
     group.add_argument('--init-config', action='store_true',
                        help='Write a starter configuration to --config (never overwrites) and exit')
+    group.add_argument('--run-due', action='store_true',
+                       help='Run the tasks that are due, once, then exit (for Task Scheduler or cron). '
+                            'Exit code 0: all ran or none due; 1: a task failed; 2: config or lock error')
+    group.add_argument('--history', nargs='?', type=int, const=20, metavar='N',
+                       help='Print the last N task runs (default 20) and exit')
+    parser.add_argument('--task', default='', metavar='ID',
+                        help='With --history: only this task (ID or its first characters)')
     parser.add_argument('-c', '--config', default='config.ini',
                         help='Configuration file (default: config.ini in the current directory)')
-    parser.add_argument('--tasks-file', default='scheduled_tasks.json',
-                        help='Where scheduled tasks are stored (default: scheduled_tasks.json)')
+    parser.add_argument('--tasks-file', default=None,
+                        help='Where scheduled tasks are stored (default: scheduled_tasks.json '
+                             'next to the configuration file)')
     parser.add_argument('--version', action='version', version=f'SFTP Pilot {__version__}')
 
     args = parser.parse_args(argv)
     if args.init_config:
         return init_config(args.config)
+    if args.tasks_file is None:
+        # Beside the config, not the working directory: Task Scheduler starts
+        # programs in System32 and cron in the home folder.
+        args.tasks_file = os.path.join(os.path.dirname(os.path.abspath(args.config)),
+                                       'scheduled_tasks.json')
+    if args.history is not None:
+        return show_history(args.tasks_file, args.history, args.task)
     setup_logging(args.config)
+    if args.run_due:
+        return run_due(args.config, args.tasks_file)
 
     if args.console:
         from .console import run_console
