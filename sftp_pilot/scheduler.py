@@ -227,7 +227,8 @@ def pid_alive(pid: int) -> bool:
     """
     Report whether a process exists on this machine.
 
-    Never uses os.kill(pid, 0) on Windows: there it calls TerminateProcess.
+    Never uses os.kill(pid, 0) on Windows: signal 0 is a console event there,
+    and it raises winerror 87 for a live process that is not ours.
 
     Args:
         pid: Process id
