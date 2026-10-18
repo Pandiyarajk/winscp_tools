@@ -102,6 +102,7 @@ def manage_secrets(config_path: str, server: str, store_password: bool, store_pa
         return 2
     target = f"{who['username']}@{who['host']}:{who['port']}"
     try:
+        keystore.ensure_available()  # before asking anyone to type a secret
         if forget:
             removed = [kind for kind in keystore.KINDS
                        if keystore.delete_secret(kind, who['username'], who['host'], who['port'])]

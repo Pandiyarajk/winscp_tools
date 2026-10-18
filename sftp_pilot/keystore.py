@@ -53,6 +53,16 @@ def _backend():
     return keyring
 
 
+def ensure_available() -> None:
+    """
+    Check that there is a keyring to talk to, without reading or writing anything
+
+    Raises:
+        KeyringUnavailable: When the package or a usable backend is missing
+    """
+    _backend()
+
+
 def get_secret(kind: str, username: str, host: str, port: int) -> Optional[str]:
     """
     Read a stored secret

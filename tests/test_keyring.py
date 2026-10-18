@@ -208,8 +208,14 @@ def test_cli_reports_a_bad_config_and_a_missing_keyring(tmp_path, monkeypatch, c
     assert "Unknown server 'ghost'" in capsys.readouterr().err
     monkeypatch.setattr(keystore, "_backend", lambda: (_ for _ in ()).throw(
         keystore.KeyringUnavailable("No usable keyring backend on this system")))
-    feed_secret(monkeypatch, "x", "x")
+
+    def must_not_prompt(prompt=""):
+        pytest.fail("asked for a secret although there is no keyring to store it in")
+
+    monkeypatch.setattr(getpass, "getpass", must_not_prompt)
     assert main(["-c", path, "--store-password"]) == 2
+    assert main(["-c", path, "--store-passphrase"]) == 2
+    assert main(["-c", path, "--forget-secrets"]) == 2
     assert "No usable keyring backend" in capsys.readouterr().err
 
 
