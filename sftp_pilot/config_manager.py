@@ -17,7 +17,7 @@ from typing import Any, Dict
 PASSWORD_ENV = "SFTP_PILOT_PASSWORD"
 PASSPHRASE_ENV = "SFTP_PILOT_KEY_PASSPHRASE"
 
-HOST_KEY_POLICIES = ("accept_new", "reject", "auto_add")
+HOST_KEY_POLICIES = ("accept_new", "ask", "reject", "auto_add")
 
 
 class ConfigManager:

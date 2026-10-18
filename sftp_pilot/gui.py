@@ -21,7 +21,7 @@ from typing import Callable, Optional
 from .config_manager import ConfigManager
 from .runner import make_task_executor
 from .scheduler import WEEKDAY_NAMES, ScheduledTask, TaskScheduler, TaskType
-from .sftp_handler import CANCELLED, SFTPHandler
+from .sftp_handler import BulkResult, SFTPHandler
 
 UI_POLL_MS = 100
 TASKS_REFRESH_MS = 5000
@@ -71,6 +71,33 @@ class SFTPPilotGUI:
     def ui(self, fn: Callable[..., object], *args) -> None:
         """Run fn(*args) on the Tk main thread (safe from any thread)"""
         self._ui_queue.put(lambda: fn(*args))
+
+    def ask_on_ui(self, ask: Callable[[], bool]) -> bool:
+        """
+        Run a yes/no dialog on the Tk thread and wait for its answer. Called
+        from a worker thread; the UI keeps running meanwhile.
+        """
+        answer: list = []
+        done = threading.Event()
+
+        def run() -> None:
+            try:
+                answer.append(bool(ask()))
+            finally:
+                done.set()
+
+        self.ui(run)
+        done.wait()
+        return bool(answer and answer[0])
+
+    def confirm_host_key(self, host: str, key_type: str, fp: str) -> bool:
+        """Prompt used by host_key_policy = ask (worker thread safe)"""
+        return self.ask_on_ui(lambda: messagebox.askyesno(
+            "Unknown server",
+            f"First connection to {host}.\n\nKey type: {key_type}\nFingerprint:\n{fp}\n\n"
+            f"Compare this with the fingerprint your server administrator gave you "
+            f"(or `ssh-keygen -lf` on the server). Trust this server?",
+            icon='warning', default='no'))
 
     def _drain_ui_queue(self) -> None:
         try:
@@ -126,14 +153,23 @@ class SFTPPilotGUI:
         self.cancel_event.set()
         self.progress_label.config(text="Cancelling...")
 
-    def _report_transfer(self, ok: bool, handler: SFTPHandler, what: str) -> None:
+    def _item_progress(self, verb: str) -> Callable[[int, int, str], None]:
+        """Label update for transfers of many files"""
+        def callback(index: int, count: int, name: str) -> None:
+            if count > 1:
+                self.ui(self.progress_label.config, {'text': f"{verb} {index}/{count}: {name}"})
+        return callback
+
+    def _report_transfer(self, result: BulkResult, what: str) -> None:
         """Show the outcome of a transfer (called on a worker thread)"""
-        if ok:
-            self.ui(messagebox.showinfo, "Success", f"{what} completed")
-        elif handler.last_error == CANCELLED:
-            self.ui(messagebox.showinfo, "Cancelled", f"{what} cancelled; nothing was left half-written")
+        if result.ok:
+            self.ui(messagebox.showinfo, "Success", f"{what} completed: {result.summary()}")
+        elif result.cancelled:
+            self.ui(messagebox.showinfo, "Cancelled",
+                    f"{what} cancelled ({result.done} file(s) were already done); "
+                    f"nothing was left half-written")
         else:
-            self.ui(messagebox.showerror, "Error", f"{what} failed: {handler.last_error}")
+            self.ui(messagebox.showerror, "Error", f"{what} failed: {result.summary()}")
 
     # ----- layout ---------------------------------------------------------
 
@@ -504,7 +540,7 @@ class SFTPPilotGUI:
             'private_key_path': self.key_entry.get().strip(),
             'private_key_passphrase': self.passphrase_entry.get(),
         })
-        handler = SFTPHandler.from_config(conn)
+        handler = SFTPHandler.from_config(conn, confirm_host_key=self.confirm_host_key)
         self.connect_btn.config(state='disabled')
         self.status_bar.config(text=f"Connecting to {host}:{port}...")
 
@@ -543,8 +579,9 @@ class SFTPPilotGUI:
         cancel = self._start_transfer()
 
         def work():
-            ok = handler.upload_file(local_path, remote_path, self._progress("Uploading"), cancel)
-            self._report_transfer(ok, handler, "Upload")
+            result = handler.upload(local_path, remote_path, self._progress("Uploading"), cancel,
+                                    self._item_progress("Uploading"))
+            self._report_transfer(result, "Upload")
 
         self.run_in_background(work)
 
@@ -566,8 +603,9 @@ class SFTPPilotGUI:
         cancel = self._start_transfer()
 
         def work():
-            ok = handler.download_file(remote_path, local_path, self._progress("Downloading"), cancel)
-            self._report_transfer(ok, handler, "Download")
+            result = handler.download(remote_path, local_path, self._progress("Downloading"), cancel,
+                                      self._item_progress("Downloading"))
+            self._report_transfer(result, "Download")
 
         self.run_in_background(work)
 

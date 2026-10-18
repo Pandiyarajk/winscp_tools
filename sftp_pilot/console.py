@@ -17,7 +17,7 @@ from typing import Iterator, List, Optional
 from .config_manager import ConfigManager
 from .runner import make_task_executor
 from .scheduler import ScheduledTask, TaskScheduler, TaskType
-from .sftp_handler import CANCELLED, SFTPHandler
+from .sftp_handler import BulkResult, SFTPHandler
 
 
 def _progress_printer(verb: str):
@@ -42,13 +42,27 @@ def _ctrl_c_cancels() -> Iterator[threading.Event]:
         signal.signal(signal.SIGINT, previous)
 
 
-def _report(ok: bool, handler: SFTPHandler, what: str) -> None:
-    if ok:
-        print(f"\nOK: {what} completed")
-    elif handler.last_error == CANCELLED:
-        print(f"\nCancelled: {what} stopped, nothing was left half-written")
+def _confirm_host_key(host: str, key_type: str, fp: str) -> bool:
+    """Show an unknown server's fingerprint and ask whether to trust it"""
+    print(f"\nFirst connection to {host}.")
+    print(f"  Key type:    {key_type}")
+    print(f"  Fingerprint: {fp}")
+    print("Compare it with the one your server administrator gave you.")
+    return input("Trust this server? (yes/no) [no]: ").strip().lower() == 'yes'
+
+
+def _item_printer(done: int, total: int, name: str) -> None:
+    if total > 1:
+        print(f"\n[{done}/{total}] {name}")
+
+
+def _report(result: BulkResult, what: str) -> None:
+    if result.ok:
+        print(f"\nOK: {what} completed: {result.summary()}")
+    elif result.cancelled:
+        print(f"\nCancelled: {what} stopped after {result.done} file(s); nothing was left half-written")
     else:
-        print(f"\nFAILED: {what} failed: {handler.last_error}")
+        print(f"\nFAILED: {what} failed: {result.summary()}")
 
 
 def _parse_days(text: str) -> List[int]:
@@ -221,7 +235,7 @@ class ConsoleInterface:
         conn_details = self.config_manager.get_connection_details()
         print(f"\nConnecting to {conn_details['host']}:{conn_details['port']}...")
 
-        self.sftp_handler = SFTPHandler.from_config(conn_details)
+        self.sftp_handler = SFTPHandler.from_config(conn_details, confirm_host_key=_confirm_host_key)
         if self.sftp_handler.connect():
             print("OK: connected")
         else:
@@ -243,7 +257,7 @@ class ConsoleInterface:
         if not handler:
             return
 
-        local_path = input("\nEnter local file path: ").strip().strip('"')
+        local_path = input("\nEnter local file, folder or pattern (for example D:\\out\\*.csv): ").strip().strip('"')
         default_dir = self.config_manager.get_paths()['remote_upload_dir'] if self.config_manager else ''
         remote_path = input(f"Enter remote destination path (end with / for a folder) [{default_dir}]: ").strip()
         remote_path = remote_path or default_dir
@@ -256,8 +270,9 @@ class ConsoleInterface:
 
         print(f"\nUploading {local_path} to {remote_path}...")
         with _ctrl_c_cancels() as cancel:
-            ok = handler.upload_file(local_path, remote_path, _progress_printer("Uploading"), cancel)
-        _report(ok, handler, "upload")
+            result = handler.upload(local_path, remote_path, _progress_printer("Uploading"), cancel,
+                                    _item_printer)
+        _report(result, "upload")
 
     def download_file(self):
         """Download file from server"""
@@ -265,7 +280,7 @@ class ConsoleInterface:
         if not handler:
             return
 
-        remote_path = input("\nEnter remote file path: ").strip()
+        remote_path = input("\nEnter remote file, folder or pattern (for example /in/*.csv): ").strip()
         default_dir = self.config_manager.get_paths()['local_download_dir'] if self.config_manager else ''
         local_path = input(f"Enter local destination (file or folder) [{default_dir}]: ").strip().strip('"')
         local_path = local_path or default_dir
@@ -276,8 +291,9 @@ class ConsoleInterface:
 
         print(f"\nDownloading {remote_path} to {local_path}...")
         with _ctrl_c_cancels() as cancel:
-            ok = handler.download_file(remote_path, local_path, _progress_printer("Downloading"), cancel)
-        _report(ok, handler, "download")
+            result = handler.download(remote_path, local_path, _progress_printer("Downloading"), cancel,
+                                      _item_printer)
+        _report(result, "download")
 
     def delete_file(self):
         """Delete file from server"""

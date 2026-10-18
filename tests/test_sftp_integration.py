@@ -7,7 +7,6 @@ Date: Oct-17-2026
 Modified: Oct-18-2026
 """
 
-import asyncio
 import os
 import threading
 from datetime import datetime, timedelta
@@ -19,82 +18,7 @@ asyncssh = pytest.importorskip("asyncssh")
 from sftp_pilot.runner import make_task_executor  # noqa: E402
 from sftp_pilot.scheduler import ScheduledTask, TaskScheduler, TaskStatus, TaskType  # noqa: E402
 from sftp_pilot.sftp_handler import CANCELLED, SFTPHandler  # noqa: E402
-
-USER, PASSWORD = "tester", "s3cret"
-
-
-class SFTPServer:
-    """Runs an asyncssh SFTP server on its own event loop thread"""
-
-    def __init__(self, root, authorized_key=None):
-        self.root = str(root)
-        self.authorized_key = authorized_key
-        self.host_key = asyncssh.generate_private_key("ssh-ed25519")
-        self.loop = asyncio.new_event_loop()
-        self.thread = threading.Thread(target=self.loop.run_forever, daemon=True)
-
-    def __enter__(self):
-        self.thread.start()
-        self.server = asyncio.run_coroutine_threadsafe(self._start(), self.loop).result(10)
-        self.port = self.server.sockets[0].getsockname()[1]
-        return self
-
-    async def _start(self):
-        outer = self
-
-        class Auth(asyncssh.SSHServer):
-            def begin_auth(self, username):
-                return True
-
-            def password_auth_supported(self):
-                return True
-
-            def validate_password(self, username, password):
-                return username == USER and password == PASSWORD
-
-            def public_key_auth_supported(self):
-                return outer.authorized_key is not None
-
-            def validate_public_key(self, username, key):
-                return username == USER and key == outer.authorized_key
-
-        return await asyncssh.create_server(
-            Auth, "127.0.0.1", 0, server_host_keys=[self.host_key],
-            sftp_factory=lambda chan: asyncssh.SFTPServer(chan, chroot=self.root.encode()),
-        )
-
-    def __exit__(self, *exc):
-        # No wait_closed(): it waits for every connection, and a client the
-        # test refused (bad host key, wrong password) may never say goodbye.
-        # Cancel what is left instead, so asyncio does not complain about
-        # destroyed pending tasks at exit.
-        async def shutdown():
-            self.server.close()
-            others = [t for t in asyncio.all_tasks() if t is not asyncio.current_task()]
-            for task in others:
-                task.cancel()
-            await asyncio.gather(*others, return_exceptions=True)
-
-        asyncio.run_coroutine_threadsafe(shutdown(), self.loop).result(10)
-        self.loop.call_soon_threadsafe(self.loop.stop)
-        self.thread.join(5)
-        self.loop.close()
-
-
-@pytest.fixture
-def remote(tmp_path):
-    root = tmp_path / "remote"
-    root.mkdir()
-    with SFTPServer(root) as server:
-        yield server
-
-
-def conn_for(server, tmp_path, **kw):
-    conn = dict(host="127.0.0.1", port=server.port, username=USER, password=PASSWORD,
-                known_hosts_file=str(tmp_path / "known_hosts"), timeout=10)
-    conn.update(kw)
-    return conn
-
+from sftp_server import SFTPServer, conn_for, connected  # noqa: E402
 
 def test_transfer_round_trip(remote, tmp_path):
     local = tmp_path / "local.bin"
@@ -195,12 +119,6 @@ def test_scheduled_failure_records_the_reason(remote, tmp_path):
     assert record["error"].startswith("delete failed:") and "see log" not in record["error"]
 
 
-def connected(remote, tmp_path, **kw):
-    h = SFTPHandler.from_config(conn_for(remote, tmp_path, **kw))
-    assert h.connect(), h.last_error
-    return h
-
-
 def remote_names(tmp_path):
     return sorted(p.name for p in (tmp_path / "remote").iterdir())
 
@@ -280,3 +198,47 @@ def test_cancelled_download_leaves_nothing(remote, tmp_path):
     finally:
         h.disconnect()
     assert list(out.iterdir()) == []
+
+
+def test_ask_policy_shows_fingerprint_and_remembers(remote, tmp_path):
+    from sftp_pilot.sftp_handler import SFTPHandler as H
+    expected = remote.host_key.get_fingerprint("sha256")  # asyncssh: 'SHA256:...'
+    asked = []
+
+    def yes(host, key_type, fp):
+        asked.append((host, key_type, fp))
+        return True
+
+    conn = conn_for(remote, tmp_path, host_key_policy="ask")
+    h = H.from_config(conn, confirm_host_key=yes)
+    assert h.connect(), h.last_error
+    h.disconnect()
+    assert len(asked) == 1
+    assert asked[0][1:] == ("ssh-ed25519", expected)
+    assert f"[127.0.0.1]:{remote.port}" in (tmp_path / "known_hosts").read_text()
+
+    h = H.from_config(conn, confirm_host_key=lambda *a: pytest.fail("asked about a known host"))
+    assert h.connect(), h.last_error
+    h.disconnect()
+
+
+def test_ask_policy_refusal_saves_nothing(remote, tmp_path):
+    conn = conn_for(remote, tmp_path, host_key_policy="ask")
+    h = SFTPHandler.from_config(conn, confirm_host_key=lambda *a: False)
+    assert not h.connect() and "not accepted" in h.last_error
+    assert (tmp_path / "known_hosts").read_text() == ""
+
+
+def test_ask_policy_without_a_prompt_refuses(remote, tmp_path):
+    # what a scheduled task or --run-due sees: nobody to ask
+    h = SFTPHandler.from_config(conn_for(remote, tmp_path, host_key_policy="ask"))
+    assert not h.connect() and "nobody can be asked" in h.last_error
+    assert (tmp_path / "known_hosts").read_text() == ""
+
+
+def test_accept_new_logs_the_fingerprint(remote, tmp_path, caplog):
+    import logging
+    with caplog.at_level(logging.WARNING, logger="sftp_pilot.sftp_handler"):
+        h = connected(remote, tmp_path)
+        h.disconnect()
+    assert remote.host_key.get_fingerprint("sha256") in caplog.text

@@ -35,9 +35,9 @@ def run_task(handler: SFTPHandler, task: ScheduledTask) -> bool:
             so it reaches the task's error message and the run history
     """
     if task.task_type == TaskType.UPLOAD:
-        ok = handler.upload_file(task.source_path, task.dest_path)
+        ok = handler.upload(task.source_path, task.dest_path).ok  # file, folder or pattern
     elif task.task_type == TaskType.DOWNLOAD:
-        ok = handler.download_file(task.source_path, task.dest_path)
+        ok = handler.download(task.source_path, task.dest_path).ok
     elif task.task_type == TaskType.DELETE:
         ok = handler.delete_file(task.source_path)
     else:

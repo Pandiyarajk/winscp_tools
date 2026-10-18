@@ -17,7 +17,7 @@ import pytest
 
 pytest.importorskip("asyncssh")
 
-from test_sftp_integration import PASSWORD, USER, SFTPServer  # noqa: E402
+from sftp_server import PASSWORD, USER, SFTPServer  # noqa: E402
 
 from sftp_pilot.config_manager import ConfigManager  # noqa: E402
 from sftp_pilot.console import _parse_days  # noqa: E402
