@@ -83,6 +83,26 @@ def test_wrong_password_reports_error(remote, tmp_path):
     assert h.last_error
 
 
+@pytest.mark.parametrize("password, key, expect_agent", [
+    ("s3cret", "", False),   # password only: agent and ~/.ssh keys are not offered
+    ("", "", True),          # nothing configured: fall back to the agent and default keys
+])
+def test_password_login_does_not_offer_agent_keys(monkeypatch, tmp_path, password, key, expect_agent):
+    import paramiko
+    seen = {}
+
+    def fake_connect(self, hostname, **kwargs):
+        seen.update(kwargs)
+        raise paramiko.SSHException("stop here")
+
+    monkeypatch.setattr(paramiko.SSHClient, "connect", fake_connect)
+    h = SFTPHandler("h.example", 22, "u", password=password, private_key_path=key,
+                    known_hosts_file=str(tmp_path / "kh"))
+    assert not h.connect()
+    assert seen.get("allow_agent", True) is expect_agent
+    assert seen.get("look_for_keys", True) is expect_agent
+
+
 def test_encrypted_ed25519_key(tmp_path):
     client_key = asyncssh.generate_private_key("ssh-ed25519")
     key_file = tmp_path / "id_ed25519"

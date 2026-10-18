@@ -272,6 +272,12 @@ class SFTPHandler:
                 kwargs['allow_agent'] = False
             if self.password:
                 kwargs['password'] = self.password
+                if not self.private_key_path:
+                    # A password was configured: do not also offer the SSH agent's keys
+                    # and ~/.ssh keys first. That is slow, and a server with a low
+                    # MaxAuthTries can refuse the login before the password is tried.
+                    kwargs['look_for_keys'] = False
+                    kwargs['allow_agent'] = False
 
             client.connect(self.host, **kwargs)
             self.ssh_client = client

@@ -20,6 +20,7 @@ from typing import Callable, Optional
 
 from .config_manager import ConfigManager
 from .runner import make_task_executor
+from .remote_browser import MODE_ANY, MODE_FILE, MODE_FOLDER, RemoteBrowser, start_folder
 from .scheduler import WEEKDAY_NAMES, ScheduledTask, TaskScheduler, TaskType
 from .sftp_handler import BulkResult, SFTPHandler
 
@@ -52,6 +53,7 @@ class SFTPPilotGUI:
         self.sftp_handler: Optional[SFTPHandler] = None
         self.scheduler = TaskScheduler(tasks_file, runner="gui")
         self.busy = False
+        self._closed = False
         self.cancel_event = threading.Event()
         self.logger = logging.getLogger(__name__)
 
@@ -107,9 +109,12 @@ class SFTPPilotGUI:
             pass
         except Exception as e:
             self.logger.error(f"UI update failed: {e}")
-        self.root.after(UI_POLL_MS, self._drain_ui_queue)
+        if not self._closed:
+            self.root.after(UI_POLL_MS, self._drain_ui_queue)
 
     def _periodic_refresh(self) -> None:
+        if self._closed:
+            return
         self.refresh_tasks()
         self.refresh_history()
         if self.sftp_handler and not self.sftp_handler.is_connected():
@@ -239,13 +244,23 @@ class SFTPPilotGUI:
         ttk.Label(upload_frame, text="Local File:").grid(row=0, column=0, sticky='w', pady=5)
         self.upload_local_entry = ttk.Entry(upload_frame, width=60)
         self.upload_local_entry.grid(row=0, column=1, padx=5, pady=5)
-        ttk.Button(upload_frame, text="Browse",
-                   command=lambda: self.browse_file(self.upload_local_entry)).grid(row=0, column=2, padx=5)
+        local_buttons = ttk.Frame(upload_frame)
+        local_buttons.grid(row=0, column=2, padx=5)
+        ttk.Button(local_buttons, text="File...",
+                   command=lambda: self.browse_file(self.upload_local_entry)).pack(side='left')
+        ttk.Button(local_buttons, text="Folder...",
+                   command=lambda: self.browse_folder(self.upload_local_entry)).pack(side='left', padx=(4, 0))
 
         ttk.Label(upload_frame, text="Remote Path:").grid(row=1, column=0, sticky='w', pady=5)
         self.upload_remote_entry = ttk.Entry(upload_frame, width=60)
         self.upload_remote_entry.grid(row=1, column=1, padx=5, pady=5)
-        ttk.Label(upload_frame, text="(end with / for a folder)").grid(row=1, column=2, sticky='w')
+        ttk.Button(upload_frame, text="Browse remote...",
+                   command=lambda: self.open_remote_browser(
+                       self.upload_remote_entry, MODE_FOLDER, add_slash=True,
+                       title="Choose the remote folder")).grid(row=1, column=2, padx=5)
+        ttk.Label(upload_frame, foreground='gray', text=(
+            "Local: a file, a folder (sent with its contents) or a pattern such as D:\\out\\*.csv. "
+            "Remote: end with / for a folder.")).grid(row=3, column=0, columnspan=3, sticky='w')
 
         ttk.Button(upload_frame, text="Upload", command=self.upload_file).grid(row=2, column=1, pady=10)
 
@@ -255,14 +270,25 @@ class SFTPPilotGUI:
         ttk.Label(download_frame, text="Remote Path:").grid(row=0, column=0, sticky='w', pady=5)
         self.download_remote_entry = ttk.Entry(download_frame, width=60)
         self.download_remote_entry.grid(row=0, column=1, padx=5, pady=5)
+        ttk.Button(download_frame, text="Browse remote...",
+                   command=lambda: self.open_remote_browser(
+                       self.download_remote_entry, MODE_ANY,
+                       title="Choose a remote file or folder")).grid(row=0, column=2, padx=5)
 
         ttk.Label(download_frame, text="Local File:").grid(row=1, column=0, sticky='w', pady=5)
         self.download_local_entry = ttk.Entry(download_frame, width=60)
         self.download_local_entry.grid(row=1, column=1, padx=5, pady=5)
-        ttk.Button(download_frame, text="Browse",
-                   command=lambda: self.browse_save_file(self.download_local_entry)).grid(row=1, column=2, padx=5)
+        save_buttons = ttk.Frame(download_frame)
+        save_buttons.grid(row=1, column=2, padx=5)
+        ttk.Button(save_buttons, text="Save as...",
+                   command=lambda: self.browse_save_file(self.download_local_entry)).pack(side='left')
+        ttk.Button(save_buttons, text="Folder...",
+                   command=lambda: self.browse_folder(self.download_local_entry)).pack(side='left', padx=(4, 0))
 
         ttk.Button(download_frame, text="Download", command=self.download_file).grid(row=2, column=1, pady=10)
+        ttk.Label(download_frame, foreground='gray', text=(
+            "Remote: a file, a folder (fetched with its contents) or a pattern such as /in/*.csv. "
+            "Local: a folder keeps the remote names.")).grid(row=3, column=0, columnspan=3, sticky='w')
 
         delete_frame = ttk.LabelFrame(tab, text="Delete File", padding=10)
         delete_frame.pack(fill='x', padx=10, pady=10)
@@ -270,6 +296,10 @@ class SFTPPilotGUI:
         ttk.Label(delete_frame, text="Remote Path:").grid(row=0, column=0, sticky='w', pady=5)
         self.delete_remote_entry = ttk.Entry(delete_frame, width=60)
         self.delete_remote_entry.grid(row=0, column=1, padx=5, pady=5)
+        ttk.Button(delete_frame, text="Browse remote...",
+                   command=lambda: self.open_remote_browser(
+                       self.delete_remote_entry, MODE_FILE, title="Choose the remote file to delete")
+                   ).grid(row=0, column=2, padx=5)
 
         ttk.Button(delete_frame, text="Delete", command=self.delete_file).grid(row=1, column=1, pady=10)
 
@@ -302,12 +332,18 @@ class SFTPPilotGUI:
         ttk.Label(add_frame, text="Source Path:").grid(row=1, column=0, sticky='w', pady=5)
         self.task_source_entry = ttk.Entry(add_frame, width=50)
         self.task_source_entry.grid(row=1, column=1, padx=5, pady=5)
-        ttk.Button(add_frame, text="Browse",
-                   command=lambda: self.browse_file(self.task_source_entry)).grid(row=1, column=2, padx=5)
+        source_buttons = ttk.Frame(add_frame)
+        source_buttons.grid(row=1, column=2, padx=5)
+        ttk.Button(source_buttons, text="Browse...",
+                   command=lambda: self.browse_task_path("source")).pack(side='left')
+        ttk.Button(source_buttons, text="Folder...",
+                   command=lambda: self.browse_task_path("source", folder=True)).pack(side='left', padx=(4, 0))
 
         ttk.Label(add_frame, text="Dest Path:").grid(row=2, column=0, sticky='w', pady=5)
         self.task_dest_entry = ttk.Entry(add_frame, width=50)
         self.task_dest_entry.grid(row=2, column=1, padx=5, pady=5)
+        ttk.Button(add_frame, text="Browse...",
+                   command=lambda: self.browse_task_path("dest")).grid(row=2, column=2, padx=5)
 
         ttk.Label(add_frame, text="Schedule:").grid(row=3, column=0, sticky='w', pady=5)
         self.schedule_kind_var = tk.StringVar(value=SCHEDULE_ONCE)
@@ -463,6 +499,66 @@ class SFTPPilotGUI:
         if filename:
             entry_widget.delete(0, tk.END)
             entry_widget.insert(0, filename)
+
+    def browse_folder(self, entry_widget):
+        """Browse for a local folder"""
+        folder = filedialog.askdirectory()
+        if folder:
+            entry_widget.delete(0, tk.END)
+            entry_widget.insert(0, folder)
+
+    def open_remote_browser(self, entry_widget, mode: str, add_slash: bool = False,
+                            title: str = "Remote files") -> None:
+        """
+        Pick a remote path in a dialog and put it in an entry
+
+        Args:
+            entry_widget: Entry that receives the path
+            mode: MODE_FILE, MODE_FOLDER or MODE_ANY
+            add_slash: Append '/' to a chosen folder (an upload destination folder)
+            title: Dialog title
+        """
+        handler = self._connected_handler()
+        if not handler:
+            return
+        if self.busy:
+            messagebox.showwarning("Busy", "Another operation is still running")
+            return
+        default = self.config_manager.get_paths()['remote_upload_dir'] if self.config_manager else "/"
+        start = start_folder(entry_widget.get(), default)
+
+        def chosen(path: str) -> None:
+            if add_slash and not path.endswith('/'):
+                path += '/'
+            self._set_entry(entry_widget, path)
+
+        RemoteBrowser(self.root, self, handler, start, mode, chosen, title)
+
+    def browse_task_path(self, which: str, folder: bool = False) -> None:
+        """
+        Browse for a task's source or destination: remote or local depending on the task type
+
+        Args:
+            which: 'source' or 'dest'
+            folder: Choose a folder rather than a file
+        """
+        task_type = self.task_type_var.get()
+        entry = self.task_source_entry if which == "source" else self.task_dest_entry
+        # Upload: source is local, destination is remote. Download and delete: the reverse.
+        remote = (task_type != "upload") if which == "source" else (task_type == "upload")
+        if remote:
+            if which == "dest":
+                self.open_remote_browser(entry, MODE_FOLDER, add_slash=True,
+                                         title="Choose the remote folder")
+            elif task_type == "delete":
+                self.open_remote_browser(entry, MODE_FILE, title="Choose the remote file to delete")
+            else:
+                self.open_remote_browser(entry, MODE_FOLDER if folder else MODE_ANY,
+                                         title="Choose a remote file or folder")
+        elif folder or which == "dest":
+            self.browse_folder(entry)
+        else:
+            self.browse_file(entry)
 
     @staticmethod
     def _set_entry(entry: ttk.Entry, value: str) -> None:
@@ -733,13 +829,19 @@ class SFTPPilotGUI:
         self.log_text.configure(state='disabled')
         self.log_text.yview(tk.END)
 
-    def on_close(self) -> None:
-        """Stop background work and close the window"""
+    def shutdown(self) -> None:
+        """Stop the scheduler, the connection and the UI callbacks; leaves the window alone"""
+        self._closed = True
         if self.scheduler.running:
             self.scheduler.stop(timeout=2)
         if self.sftp_handler:
             self.sftp_handler.disconnect()
+            self.sftp_handler = None
         logging.getLogger().removeHandler(self.text_handler)
+
+    def on_close(self) -> None:
+        """Stop background work and close the window"""
+        self.shutdown()
         self.root.destroy()
 
 
