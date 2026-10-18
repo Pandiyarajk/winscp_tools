@@ -7,21 +7,73 @@ Modified: Oct-18-2026
 """
 
 import logging
+import signal
+import threading
 import uuid
+from contextlib import contextmanager
 from datetime import datetime, timedelta
-from typing import Optional
+from typing import Iterator, List, Optional
 
 from .config_manager import ConfigManager
 from .runner import make_task_executor
 from .scheduler import ScheduledTask, TaskScheduler, TaskType
-from .sftp_handler import SFTPHandler
+from .sftp_handler import CANCELLED, SFTPHandler
 
 
 def _progress_printer(verb: str):
     def callback(done: int, total: int) -> None:
         percent = (done / total * 100) if total else 100.0
-        print(f"\r{verb}: {percent:5.1f}% ({done}/{total} bytes)", end='', flush=True)
+        print(f"\r{verb}: {percent:5.1f}% ({done}/{total} bytes)  Ctrl+C cancels", end='', flush=True)
     return callback
+
+
+@contextmanager
+def _ctrl_c_cancels() -> Iterator[threading.Event]:
+    """
+    During a transfer, Ctrl+C sets an event the transfer checks between
+    chunks, instead of raising KeyboardInterrupt somewhere inside paramiko
+    (which could leave the SFTP channel mid-request).
+    """
+    cancel = threading.Event()
+    previous = signal.signal(signal.SIGINT, lambda *_: cancel.set())
+    try:
+        yield cancel
+    finally:
+        signal.signal(signal.SIGINT, previous)
+
+
+def _report(ok: bool, handler: SFTPHandler, what: str) -> None:
+    if ok:
+        print(f"\nOK: {what} completed")
+    elif handler.last_error == CANCELLED:
+        print(f"\nCancelled: {what} stopped, nothing was left half-written")
+    else:
+        print(f"\nFAILED: {what} failed: {handler.last_error}")
+
+
+def _parse_days(text: str) -> List[int]:
+    """
+    Parse weekday input such as "0-4" or "0,2,4" (0 = Monday)
+
+    Args:
+        text: User input; blank means every day
+
+    Returns:
+        Sorted weekday numbers
+
+    Raises:
+        ValueError: On anything that is not a day number or range
+    """
+    days = set()
+    for part in filter(None, (p.strip() for p in text.split(","))):
+        if "-" in part:
+            start, end = (int(x) for x in part.split("-", 1))
+            days.update(range(start, end + 1))
+        else:
+            days.add(int(part))
+    if any(d not in range(7) for d in days):
+        raise ValueError("Days must be 0 (Monday) to 6 (Sunday)")
+    return sorted(days)
 
 
 def _ask_int(prompt: str, default: int, minimum: int = 0) -> Optional[int]:
@@ -54,7 +106,7 @@ class ConsoleInterface:
         self.tasks_file = tasks_file
         self.config_manager: Optional[ConfigManager] = None
         self.sftp_handler: Optional[SFTPHandler] = None
-        self.scheduler = TaskScheduler(tasks_file)
+        self.scheduler = TaskScheduler(tasks_file, runner="console")
         self.running = True
         self.logger = logging.getLogger(__name__)
 
@@ -77,7 +129,10 @@ class ConsoleInterface:
             print(f"Warning: Could not load configuration file {self.config_path}")
 
         if self.config_manager:
-            self.scheduler.check_interval = self.config_manager.get_scheduling_config()['check_interval']
+            sched_cfg = self.config_manager.get_scheduling_config()
+            self.scheduler.check_interval = sched_cfg['check_interval']
+            self.scheduler.retries = sched_cfg['retries']
+            self.scheduler.retry_delay = sched_cfg['retry_delay']
             self.scheduler.set_task_executor(
                 make_task_executor(self.config_manager.get_connection_details)
             )
@@ -109,7 +164,8 @@ class ConsoleInterface:
         print("9. Remove scheduled task")
         print("10. Start scheduler")
         print("11. Stop scheduler")
-        print("12. Exit")
+        print("12. Task history")
+        print("13. Exit")
         print("=" * 60)
 
     def handle_choice(self, choice: str):
@@ -126,7 +182,9 @@ class ConsoleInterface:
             '9': self.remove_task,
             '10': self.start_scheduler,
             '11': self.stop_scheduler,
-            '12': self.exit_app
+            '12': self.view_history,
+            '13': self.exit_app,
+            'q': self.exit_app,
         }
 
         action = actions.get(choice)
@@ -197,10 +255,9 @@ class ConsoleInterface:
             remote_path += '/'
 
         print(f"\nUploading {local_path} to {remote_path}...")
-        if handler.upload_file(local_path, remote_path, _progress_printer("Uploading")):
-            print("\nOK: upload completed")
-        else:
-            print("\nFAILED: upload failed (see log)")
+        with _ctrl_c_cancels() as cancel:
+            ok = handler.upload_file(local_path, remote_path, _progress_printer("Uploading"), cancel)
+        _report(ok, handler, "upload")
 
     def download_file(self):
         """Download file from server"""
@@ -218,10 +275,9 @@ class ConsoleInterface:
             return
 
         print(f"\nDownloading {remote_path} to {local_path}...")
-        if handler.download_file(remote_path, local_path, _progress_printer("Downloading")):
-            print("\nOK: download completed")
-        else:
-            print("\nFAILED: download failed (see log)")
+        with _ctrl_c_cancels() as cancel:
+            ok = handler.download_file(remote_path, local_path, _progress_printer("Downloading"), cancel)
+        _report(ok, handler, "download")
 
     def delete_file(self):
         """Delete file from server"""
@@ -281,31 +337,46 @@ class ConsoleInterface:
         if task_type in (TaskType.UPLOAD, TaskType.DOWNLOAD):
             dest_path = input("Enter destination path: ").strip().strip('"')
 
-        delay_minutes = _ask_int("Run in how many minutes?", 5)
-        if delay_minutes is None:
+        print("Schedule: 1) Once  2) Every N minutes  3) Daily at a time")
+        kind = input("Select schedule (1-3) [1]: ").strip() or "1"
+        options = {}
+        if kind == "3":
+            options['daily_time'] = input("Time of day, HH:MM 24 hour [02:00]: ").strip() or "02:00"
+            days = input("Days, e.g. 0-4 for Mon-Fri or 0,2,4 (0=Mon, blank=every day): ").strip()
+            try:
+                options['weekdays'] = _parse_days(days)
+            except ValueError as e:
+                print(f"FAILED: {e}")
+                return
+        elif kind in ("1", "2"):
+            delay_minutes = _ask_int("Start in how many minutes?", 5)
+            if delay_minutes is None:
+                return
+            options['scheduled_time'] = datetime.now() + timedelta(minutes=delay_minutes)
+            if kind == "2":
+                interval_minutes = _ask_int("Every how many minutes?", 60, minimum=1)
+                if interval_minutes is None:
+                    return
+                options['recurring'] = True
+                options['interval_minutes'] = interval_minutes
+        else:
+            print("FAILED: invalid schedule")
             return
 
-        recurring = input("Recurring task? (yes/no) [no]: ").strip().lower() == 'yes'
-        interval_minutes = 0
-        if recurring:
-            interval_minutes = _ask_int("Interval in minutes", 60, minimum=1)
-            if interval_minutes is None:
-                return
-
         task_id = str(uuid.uuid4())
-        scheduled_time = datetime.now() + timedelta(minutes=delay_minutes)
         try:
-            task = ScheduledTask(task_id, task_type, source_path, dest_path,
-                                 scheduled_time, recurring, interval_minutes)
+            task = ScheduledTask(task_id, task_type, source_path, dest_path, **options)
         except ValueError as e:
             print(f"FAILED: {e}")
             return
 
         self.scheduler.add_task(task)
-        print(f"\nOK: task scheduled (ID: {task_id[:8]})")
-        print(f"  Will run at: {scheduled_time:%Y-%m-%d %H:%M:%S}")
+        print(f"\nOK: task scheduled (ID: {task_id[:8]}, {task.describe_schedule()})")
+        if task.next_run:
+            print(f"  First run: {task.next_run:%Y-%m-%d %H:%M:%S}")
         if not self.scheduler.running:
-            print("  The scheduler is stopped: start it (option 10) for the task to run.")
+            print("  The scheduler here is stopped: start it (option 10), or let")
+            print("  sftp-pilot --run-due (Task Scheduler / cron) run it.")
 
     def view_tasks(self):
         """View all scheduled tasks"""
@@ -327,8 +398,22 @@ class ConsoleInterface:
             print(f"Status: {task.describe_status()}")
             if task.error_message:
                 print(f"Last error: {task.error_message}")
-            print(f"Recurring: {'every %d minutes' % task.interval_minutes if task.recurring else 'No'}")
+            print(f"Schedule: {task.describe_schedule()}")
             print("-" * 80)
+
+    def view_history(self):
+        """Show recent runs of all tasks or one task"""
+        task_id = input("\nTask ID to filter by (blank for all): ").strip()
+        records = self.scheduler.read_history(task_id, limit=30)
+        if not records:
+            print("No task runs recorded yet.")
+            return
+        print(f"\n{'Time':19}  {'Task':8}  {'Type':8}  {'Result':6}  Try  Runner    Error")
+        print("-" * 80)
+        for r in records:
+            print(f"{str(r.get('time', ''))[:19]:19}  {str(r.get('task_id', ''))[:8]:8}  "
+                  f"{r.get('type', ''):8}  {r.get('result', ''):6}  {r.get('attempt', 1):>3}  "
+                  f"{r.get('runner', ''):8}  {r.get('error', '')}")
 
     def remove_task(self):
         """Remove a scheduled task"""

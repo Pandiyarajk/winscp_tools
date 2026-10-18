@@ -18,7 +18,7 @@ asyncssh = pytest.importorskip("asyncssh")
 
 from sftp_pilot.runner import make_task_executor  # noqa: E402
 from sftp_pilot.scheduler import ScheduledTask, TaskScheduler, TaskStatus, TaskType  # noqa: E402
-from sftp_pilot.sftp_handler import SFTPHandler  # noqa: E402
+from sftp_pilot.sftp_handler import CANCELLED, SFTPHandler  # noqa: E402
 
 USER, PASSWORD = "tester", "s3cret"
 
@@ -66,9 +66,19 @@ class SFTPServer:
     def __exit__(self, *exc):
         # No wait_closed(): it waits for every connection, and a client the
         # test refused (bad host key, wrong password) may never say goodbye.
-        self.loop.call_soon_threadsafe(self.server.close)
+        # Cancel what is left instead, so asyncio does not complain about
+        # destroyed pending tasks at exit.
+        async def shutdown():
+            self.server.close()
+            others = [t for t in asyncio.all_tasks() if t is not asyncio.current_task()]
+            for task in others:
+                task.cancel()
+            await asyncio.gather(*others, return_exceptions=True)
+
+        asyncio.run_coroutine_threadsafe(shutdown(), self.loop).result(10)
         self.loop.call_soon_threadsafe(self.loop.stop)
         self.thread.join(5)
+        self.loop.close()
 
 
 @pytest.fixture
@@ -173,3 +183,100 @@ def test_scheduler_runs_task_on_its_own_connection(remote, tmp_path):
     sched.run_due_tasks()
     assert sched.get_task("task-0001").status == TaskStatus.COMPLETED
     assert (tmp_path / "remote/backups/nightly.txt").read_text() == "backup"
+
+
+def test_scheduled_failure_records_the_reason(remote, tmp_path):
+    sched = TaskScheduler(str(tmp_path / "tasks.json"))
+    sched.set_task_executor(make_task_executor(lambda: conn_for(remote, tmp_path)))
+    sched.add_task(ScheduledTask("task-0002", TaskType.DELETE, "/no/such/file",
+                                 scheduled_time=datetime.now() - timedelta(seconds=1)))
+    record = sched.run_due_tasks()[0]
+    assert record["result"] == "failed"
+    assert record["error"].startswith("delete failed:") and "see log" not in record["error"]
+
+
+def connected(remote, tmp_path, **kw):
+    h = SFTPHandler.from_config(conn_for(remote, tmp_path, **kw))
+    assert h.connect(), h.last_error
+    return h
+
+
+def remote_names(tmp_path):
+    return sorted(p.name for p in (tmp_path / "remote").iterdir())
+
+
+def test_atomic_upload_replaces_existing_file(remote, tmp_path):
+    (tmp_path / "remote/report.csv").write_text("old")
+    src = tmp_path / "report.csv"
+    src.write_text("new contents")
+    h = connected(remote, tmp_path)
+    seen = []
+    try:
+        assert h.upload_file(str(src), "/report.csv",
+                             lambda d, t: seen.append(remote_names(tmp_path)))
+    finally:
+        h.disconnect()
+    assert (tmp_path / "remote/report.csv").read_text() == "new contents"
+    assert remote_names(tmp_path) == ["report.csv"]
+    assert any("report.csv.part" in names for names in seen), "upload did not go via .part"
+
+
+def test_atomic_upload_without_posix_rename(remote, tmp_path):
+    (tmp_path / "remote/report.csv").write_text("old")
+    src = tmp_path / "report.csv"
+    src.write_text("new contents")
+    h = connected(remote, tmp_path)
+
+    def unsupported(*_a):
+        raise IOError("Operation unsupported")
+
+    h.sftp_client.posix_rename = unsupported
+    try:
+        assert h.upload_file(str(src), "/report.csv"), h.last_error
+    finally:
+        h.disconnect()
+    assert (tmp_path / "remote/report.csv").read_text() == "new contents"
+    assert remote_names(tmp_path) == ["report.csv"], "a .part or .old file was left behind"
+
+
+def test_non_atomic_upload_writes_in_place(remote, tmp_path):
+    src = tmp_path / "a.txt"
+    src.write_text("x" * 100_000)
+    h = connected(remote, tmp_path, atomic_uploads=False)
+    seen = []
+    try:
+        assert h.upload_file(str(src), "/a.txt", lambda d, t: seen.append(remote_names(tmp_path)))
+    finally:
+        h.disconnect()
+    assert not any("a.txt.part" in names for names in seen)
+
+
+def test_cancelled_upload_keeps_the_old_file(remote, tmp_path):
+    (tmp_path / "remote/big.bin").write_bytes(b"old")
+    src = tmp_path / "big.bin"
+    src.write_bytes(os.urandom(2_000_000))
+    cancel = threading.Event()
+    h = connected(remote, tmp_path)
+    try:
+        ok = h.upload_file(str(src), "/big.bin", lambda d, t: cancel.set(), cancel_event=cancel)
+        assert not ok and h.last_error == CANCELLED
+        assert h.is_connected(), "cancel broke the connection"
+        assert h.file_exists("/big.bin")
+    finally:
+        h.disconnect()
+    assert (tmp_path / "remote/big.bin").read_bytes() == b"old"
+    assert remote_names(tmp_path) == ["big.bin"]
+
+
+def test_cancelled_download_leaves_nothing(remote, tmp_path):
+    (tmp_path / "remote/big.bin").write_bytes(os.urandom(2_000_000))
+    cancel = threading.Event()
+    out = tmp_path / "out"
+    out.mkdir()
+    h = connected(remote, tmp_path)
+    try:
+        ok = h.download_file("/big.bin", str(out), lambda d, t: cancel.set(), cancel_event=cancel)
+        assert not ok and h.last_error == CANCELLED
+    finally:
+        h.disconnect()
+    assert list(out.iterdir()) == []

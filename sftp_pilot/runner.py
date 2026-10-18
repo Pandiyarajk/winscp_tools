@@ -29,14 +29,22 @@ def run_task(handler: SFTPHandler, task: ScheduledTask) -> bool:
 
     Returns:
         True on success
+
+    Raises:
+        RuntimeError: When the operation fails, carrying the handler's reason
+            so it reaches the task's error message and the run history
     """
     if task.task_type == TaskType.UPLOAD:
-        return handler.upload_file(task.source_path, task.dest_path)
-    if task.task_type == TaskType.DOWNLOAD:
-        return handler.download_file(task.source_path, task.dest_path)
-    if task.task_type == TaskType.DELETE:
-        return handler.delete_file(task.source_path)
-    return False
+        ok = handler.upload_file(task.source_path, task.dest_path)
+    elif task.task_type == TaskType.DOWNLOAD:
+        ok = handler.download_file(task.source_path, task.dest_path)
+    elif task.task_type == TaskType.DELETE:
+        ok = handler.delete_file(task.source_path)
+    else:
+        raise RuntimeError(f"Unknown task type {task.task_type}")
+    if not ok:
+        raise RuntimeError(f"{task.task_type.value} failed: {handler.last_error or 'see log'}")
+    return True
 
 
 def make_task_executor(

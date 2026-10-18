@@ -37,6 +37,8 @@ env/
 config.ini
 known_hosts
 scheduled_tasks.json
+scheduled_tasks.json.lock
+scheduled_tasks.history.jsonl*
 .tasks-*.json
 *.part
 *.log
