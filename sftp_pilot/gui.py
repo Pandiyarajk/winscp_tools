@@ -32,6 +32,10 @@ from .sftp_handler import BulkResult, SFTPHandler
 
 UI_POLL_MS = 100
 TASKS_REFRESH_MS = 5000
+# Room kept below the window's client area: the title bar and borders (about 40 px) plus a taskbar
+# (about 48 px). Tk's geometry is the client size, so without this the bottom of the window,
+# which holds the status bar, slid under the taskbar on a 768 px high screen.
+SCREEN_BOTTOM_MARGIN = 96
 LOG_LINES_KEPT = 5000
 SCHEDULE_ONCE = "Once"
 SCHEDULE_INTERVAL = "Every N minutes"
@@ -74,7 +78,8 @@ class SFTPPilotGUI:
         theme.set_window_icon(root)
         self.root.title("SFTP Pilot - File Transfer & Scheduler")
         self.root.geometry(theme.clamp_to_screen(
-            root, theme.fit_geometry(root, self.prefs.get("geometry"), "1040x760")))
+            root, theme.fit_geometry(root, self.prefs.get("geometry"), "1040x760"),
+            bottom_margin=theme.scale(root, SCREEN_BOTTOM_MARGIN)))
         self.root.minsize(min(theme.scale(root, 900), root.winfo_screenwidth()),
                           min(theme.scale(root, 620), root.winfo_screenheight() - 90))
 

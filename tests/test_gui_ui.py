@@ -878,3 +878,17 @@ def test_no_threads_or_windows_are_left_behind(build, tk_root):
     assert tk_root.winfo_children() == []
     assert not [h for h in logging.getLogger().handlers if isinstance(h, G.TextHandler)]
     assert tk_root.state() == "withdrawn"
+
+
+def test_window_leaves_room_for_title_bar_and_taskbar(build, tk_root):
+    """The window is sized for the client area, so decorations and the taskbar must fit below it"""
+    assert G.SCREEN_BOTTOM_MARGIN >= 90
+    sw, sh = tk_root.winfo_screenwidth(), tk_root.winfo_screenheight()
+    app = build({"geometry": f"{sw}x{sh}+0+0"})  # as large as the screen
+    with mapped(tk_root, None):
+        settle(tk_root)
+        w, h, x, y = parse(tk_root.geometry())
+        assert y + h <= sh - G.SCREEN_BOTTOM_MARGIN  # Tk's +y is the outer top edge, the size the client area
+        taskbar = 48
+        status_bottom = app.status_frame.winfo_rooty() + app.status_frame.winfo_height()
+        assert status_bottom + 8 <= sh - taskbar, "the status bar would sit under the taskbar"
