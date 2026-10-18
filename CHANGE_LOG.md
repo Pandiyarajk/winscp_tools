@@ -12,6 +12,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [2.1.0] - 2026-10-18
+
+Safer transfers and unattended runs.
+
+### Added
+- **Atomic uploads:** files are uploaded to `<name>.part` and renamed into
+  place (OpenSSH posix-rename; without it, the old file is moved aside and
+  restored if the swap fails). A failed or cancelled upload leaves the previous
+  version untouched. `atomic_uploads = false` turns it off.
+- **Cancel** a transfer: Cancel button in the GUI, Ctrl+C in the console (which
+  previously quit the app mid-transfer). Partial files are removed.
+- **Retries** for scheduled tasks with doubling delays: `[SCHEDULING] retries`
+  (default 3) and `retry_delay` (default 60 s).
+- **`sftp-pilot --run-due`** for Windows Task Scheduler and cron. Exit codes 0
+  (ok or nothing due), 1 (a task failed), 2 (config or tasks file unusable).
+  Verified under real Task Scheduler and real cron.
+- **Daily schedules** at a time of day, optionally on chosen weekdays.
+- **Run history** (`scheduled_tasks.history.jsonl`, rotated at 5 MB): GUI
+  History tab, console menu item 12, `sftp-pilot --history [N] [--task ID]`.
+
+### Changed
+- The tasks file is shared safely between processes: an inter-process lock
+  around every change, and tasks are claimed before they run, so the GUI and
+  `--run-due` never run the same task twice.
+- Interval tasks run on a fixed grid from their first run instead of "N minutes
+  after the last run finished", so they no longer drift; missed slots after
+  downtime are skipped, not replayed.
+- Relative paths in the config, and the default tasks file, resolve against the
+  config file's folder instead of the current directory (Task Scheduler starts
+  programs in `C:\Windows\System32`).
+- A failed scheduled task records the real reason (for example
+  `delete failed: No such file`) instead of "see log".
+- Console: Exit moved to 13 (`q` also exits).
+- `TaskScheduler.run_due_tasks()` returns the run records instead of a count.
+
+### Notes
+- File size is checked after every transfer by paramiko, as before. There is
+  no checksum check: SFTP has no standard command for one.
+- Task files from 2.0 load unchanged.
+
+---
+
 ## [2.0.2] - 2026-10-18
 
 ### Fixed
