@@ -64,7 +64,8 @@ from the [releases page](https://github.com/Pandiyarajk/sftp-pilot/releases); se
 [Windows program](#windows-program-no-python-needed).
 
 From a source checkout: `pip install .`, or without installing
-`pip install -r requirements.txt` then `python main.py`.
+`pip install -r requirements.txt` then `python main.py`. To upgrade:
+`pip install -U sftp-pilot` (your `config.ini` and task files carry over).
 
 Options:
 
@@ -203,6 +204,22 @@ server later presents a different key, the connection is refused with a
 warning, since that is what a man-in-the-middle attack looks like. If the key
 really did change (server rebuilt), delete that server's line from the file.
 
+## Where it keeps files
+
+All of these sit next to your `config.ini` (relative paths in the config are
+taken from that folder, so it does not matter where a program is started from):
+
+| File | What it is |
+| --- | --- |
+| `config.ini` | Servers, paths, scheduling and logging settings. May hold passwords: keep it private |
+| `scheduled_tasks.json` | The scheduled tasks, shared safely between the window, the console and `--run-due` |
+| `scheduled_tasks.history.jsonl` | One line per scheduled run (rotated at 5 MB, the old one kept as `.1`) |
+| `known_hosts` | Server host keys you have accepted |
+| `ui_state.json` | Theme choice and window size; safe to delete |
+| `sftp_pilot.log` | The log file, if `log_file` is set |
+
+With the Windows installer that folder is `%APPDATA%\SFTP Pilot`.
+
 ## Windows program (no Python needed)
 
 Each release has a zip with two programs built from this same code:
@@ -255,7 +272,9 @@ Things to know:
 - **File Operations:** upload (a remote path ending in `/` keeps the local file
   name), download, delete (asks first). **Browse remote...** opens a file
   browser on the server. One transfer runs at a time, the window stays
-  responsive, and **Cancel** stops it cleanly.
+  responsive, and **Cancel** (in the bar above the status bar, on every tab)
+  stops it cleanly. These actions are greyed out until you connect, and the
+  tab scrolls on a short window.
 - **Scheduler:** add tasks (once, every N minutes, or daily at a time with
   optional weekdays), start or stop the scheduler, remove the selected tasks.
   The list refreshes every few seconds and shows each task's schedule, next run
@@ -376,8 +395,16 @@ pytest
 
 The integration tests start a throwaway SFTP server (asyncssh) on localhost, so
 they need no external server. They cover transfers, cancel, atomic replace,
-key authentication, host key changes, `--run-due` started from an unrelated
-folder, and two processes racing for the same tasks.
+folders and patterns, key authentication, host key prompts and changes,
+several servers, `--run-due` started from an unrelated folder, and two
+processes racing for the same tasks. The GUI tests drive the real tkinter
+window (theme, layout at several sizes, tables, log, keyboard); they keep the
+window invisible and skip themselves without a display or tkinter. Keyring
+tests use an in-memory backend; set `SFTP_PILOT_REAL_KEYRING=1` to also run one
+against the real OS keyring. The suite is also run on Linux.
+
+Build the Windows zip with `packaging\windows\build.ps1`, and regenerate the icon
+with `python packaging/make_icon.py` (needs Pillow, which the app itself does not).
 
 ```
 sftp_pilot/
@@ -386,11 +413,15 @@ sftp_pilot/
   sftp_handler.py    SFTP connection and file operations
   scheduler.py       task model, schedules, retries, file lock, claims, history
   runner.py          runs a task on its own connection
-  gui.py             tkinter interface
+  gui.py             tkinter interface (layout and behaviour)
+  theme.py           light and dark palettes, fonts, saved theme and window size, sortable tables
+  scrollframe.py     a frame that scrolls when the window is too short
   remote_browser.py  the remote file browser dialog
   keystore.py        optional OS keyring storage
   console.py         console menu
+  assets/            the application icon
 packaging/windows/   PyInstaller spec and the install, uninstall and Task Scheduler scripts
+packaging/make_icon.py  regenerates the icon files
 tests/               pytest suite
 ```
 
@@ -405,6 +436,13 @@ tests/               pytest suite
 | `--run-due` exits 2 | Run the same command in a terminal to see the message; usually the `-c` path |
 | Upload fails at the rename step | The server forbids renames: set `atomic_uploads = false` |
 | GUI does not start | `python -m tkinter`; on Linux install `python3-tk`; or use `--console` |
+| Upload, Download and Delete are greyed out | You are not connected: use the Connection tab (Ctrl+1) |
+| A scheduled run fails on a new server with `nobody can be asked` | `host_key_policy = ask` cannot prompt without a window. Connect once from the window and accept the key, or add it to `known_hosts` |
+| `uses password_store = keyring but no password is stored` | Run `sftp-pilot --store-password` (add `--server NAME` for a named server), or remove `password_store` |
+| `The keyring package is not installed` | `pip install sftp-pilot[keyring]` (already included in the Windows program) |
+| Windows says "Windows protected your PC" | The Windows program is not code-signed. Compare the zip's SHA256 with the one on the release page before choosing "Run anyway" |
+| `register-task.ps1 -RunWhenLoggedOff` says "Access is denied" | Windows only allows that from an elevated PowerShell (Run as administrator) |
+| The window looks wrong or opens in the wrong place | Delete `ui_state.json` next to your `config.ini` to reset the theme and size |
 
 ## License
 
