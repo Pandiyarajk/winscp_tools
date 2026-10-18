@@ -21,7 +21,7 @@ from typing import Callable, Optional
 from .config_manager import ConfigManager
 from .runner import make_task_executor
 from .scheduler import ScheduledTask, TaskScheduler, TaskType
-from .sftp_handler import SFTPHandler
+from .sftp_handler import CANCELLED, SFTPHandler
 
 UI_POLL_MS = 100
 TASKS_REFRESH_MS = 5000
@@ -47,8 +47,9 @@ class SFTPPilotGUI:
         self.config_path = config_path
         self.config_manager: Optional[ConfigManager] = None
         self.sftp_handler: Optional[SFTPHandler] = None
-        self.scheduler = TaskScheduler(tasks_file)
+        self.scheduler = TaskScheduler(tasks_file, runner="gui")
         self.busy = False
+        self.cancel_event = threading.Event()
         self.logger = logging.getLogger(__name__)
 
         self._ui_queue: "queue.Queue[Callable[[], object]]" = queue.Queue()
@@ -107,6 +108,27 @@ class SFTPPilotGUI:
         self.busy = False
         self.progress_var.set(0)
         self.progress_label.config(text="")
+        self.cancel_btn.config(state='disabled')
+
+    def _start_transfer(self) -> threading.Event:
+        """Fresh cancel event for a transfer, with the Cancel button enabled"""
+        self.cancel_event = threading.Event()
+        self.cancel_btn.config(state='normal')
+        return self.cancel_event
+
+    def cancel_transfer(self) -> None:
+        """Ask the running transfer to stop; it cleans up its partial file"""
+        self.cancel_event.set()
+        self.progress_label.config(text="Cancelling...")
+
+    def _report_transfer(self, ok: bool, handler: SFTPHandler, what: str) -> None:
+        """Show the outcome of a transfer (called on a worker thread)"""
+        if ok:
+            self.ui(messagebox.showinfo, "Success", f"{what} completed")
+        elif handler.last_error == CANCELLED:
+            self.ui(messagebox.showinfo, "Cancelled", f"{what} cancelled; nothing was left half-written")
+        else:
+            self.ui(messagebox.showerror, "Error", f"{what} failed: {handler.last_error}")
 
     # ----- layout ---------------------------------------------------------
 
@@ -213,8 +235,13 @@ class SFTPPilotGUI:
         self.progress_bar = ttk.Progressbar(tab, variable=self.progress_var, maximum=100)
         self.progress_bar.pack(fill='x', padx=10, pady=10)
 
-        self.progress_label = ttk.Label(tab, text="")
-        self.progress_label.pack()
+        progress_row = ttk.Frame(tab)
+        progress_row.pack(fill='x', padx=10)
+        self.cancel_btn = ttk.Button(progress_row, text="Cancel", command=self.cancel_transfer,
+                                     state='disabled')
+        self.cancel_btn.pack(side='right')
+        self.progress_label = ttk.Label(progress_row, text="")
+        self.progress_label.pack(side='left')
 
     def create_scheduler_tab(self):
         """Create scheduler tab"""
@@ -361,7 +388,10 @@ class SFTPPilotGUI:
         if remote_dir and not self.upload_remote_entry.get():
             self._set_entry(self.upload_remote_entry, remote_dir.rstrip('/') + '/')
 
-        self.scheduler.check_interval = self.config_manager.get_scheduling_config()['check_interval']
+        sched_cfg = self.config_manager.get_scheduling_config()
+        self.scheduler.check_interval = sched_cfg['check_interval']
+        self.scheduler.retries = sched_cfg['retries']
+        self.scheduler.retry_delay = sched_cfg['retry_delay']
         self.scheduler.set_task_executor(make_task_executor(self.config_manager.get_connection_details))
         self.logger.info(f"Configuration loaded from {self.config_path}")
 
@@ -421,11 +451,14 @@ class SFTPPilotGUI:
             messagebox.showerror("Error", "Both local and remote paths are required")
             return
 
+        if self.busy:
+            messagebox.showwarning("Busy", "Another operation is still running")
+            return
+        cancel = self._start_transfer()
+
         def work():
-            if handler.upload_file(local_path, remote_path, self._progress("Uploading")):
-                self.ui(messagebox.showinfo, "Success", "File uploaded successfully")
-            else:
-                self.ui(messagebox.showerror, "Error", "Upload failed (see Logs tab)")
+            ok = handler.upload_file(local_path, remote_path, self._progress("Uploading"), cancel)
+            self._report_transfer(ok, handler, "Upload")
 
         self.run_in_background(work)
 
@@ -441,11 +474,14 @@ class SFTPPilotGUI:
             messagebox.showerror("Error", "Both remote and local paths are required")
             return
 
+        if self.busy:
+            messagebox.showwarning("Busy", "Another operation is still running")
+            return
+        cancel = self._start_transfer()
+
         def work():
-            if handler.download_file(remote_path, local_path, self._progress("Downloading")):
-                self.ui(messagebox.showinfo, "Success", "File downloaded successfully")
-            else:
-                self.ui(messagebox.showerror, "Error", "Download failed (see Logs tab)")
+            ok = handler.download_file(remote_path, local_path, self._progress("Downloading"), cancel)
+            self._report_transfer(ok, handler, "Download")
 
         self.run_in_background(work)
 

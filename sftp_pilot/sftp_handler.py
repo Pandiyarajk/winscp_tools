@@ -10,11 +10,18 @@ import logging
 import os
 import posixpath
 import stat
+import threading
 from typing import Any, Callable, Dict, List, Optional
 
 import paramiko
 
 ProgressCallback = Callable[[int, int], None]
+
+CANCELLED = "Cancelled"
+
+
+class TransferCancelled(Exception):
+    """Raised from the progress callback to abort a transfer"""
 
 
 class SFTPHandler:
@@ -23,7 +30,8 @@ class SFTPHandler:
     def __init__(self, host: str, port: int, username: str,
                  password: str = '', private_key_path: str = '', protocol: str = 'sftp',
                  private_key_passphrase: str = '', host_key_policy: str = 'accept_new',
-                 known_hosts_file: str = 'known_hosts', timeout: float = 30.0):
+                 known_hosts_file: str = 'known_hosts', timeout: float = 30.0,
+                 atomic_uploads: bool = True):
         """
         Initialize the handler
 
@@ -40,6 +48,8 @@ class SFTPHandler:
                 known; 'auto_add' accepts any key (insecure, testing only)
             known_hosts_file: File where accepted host keys are stored
             timeout: Connect and authentication timeout in seconds
+            atomic_uploads: Upload to '<name>.part' and rename into place, so
+                a failed upload never leaves a truncated file under the real name
         """
         if protocol != 'sftp':
             raise ValueError(f"Unsupported protocol '{protocol}': only 'sftp' is supported")
@@ -54,6 +64,7 @@ class SFTPHandler:
         self.host_key_policy = host_key_policy
         self.known_hosts_file = known_hosts_file
         self.timeout = timeout
+        self.atomic_uploads = atomic_uploads
 
         self.ssh_client: Optional[paramiko.SSHClient] = None
         self.sftp_client: Optional[paramiko.SFTPClient] = None
@@ -82,6 +93,7 @@ class SFTPHandler:
             host_key_policy=conn.get('host_key_policy', 'accept_new'),
             known_hosts_file=conn.get('known_hosts_file', 'known_hosts'),
             timeout=conn.get('timeout', 30.0),
+            atomic_uploads=conn.get('atomic_uploads', True),
         )
 
     def _configure_host_keys(self, client: paramiko.SSHClient) -> None:
@@ -206,8 +218,50 @@ class SFTPHandler:
             raise ConnectionError("Not connected to server")
         return self.sftp_client
 
+    @staticmethod
+    def _progress(callback: Optional[ProgressCallback],
+                  cancel_event: Optional[threading.Event]) -> Optional[ProgressCallback]:
+        """Wrap a progress callback so a set cancel_event aborts the transfer"""
+        if cancel_event is None:
+            return callback
+
+        def wrapped(done: int, total: int) -> None:
+            if cancel_event.is_set():
+                raise TransferCancelled()
+            if callback:
+                callback(done, total)
+
+        return wrapped
+
+    def _replace_remote(self, sftp: paramiko.SFTPClient, source: str, target: str) -> None:
+        """
+        Move source over target. posix-rename (OpenSSH) replaces in one step;
+        without it, the old target is moved aside first and restored if the
+        swap fails, so the target is never lost.
+        """
+        try:
+            sftp.posix_rename(source, target)
+            return
+        except IOError as e:
+            self.logger.debug(f"posix_rename unavailable ({e}); using rename")
+        try:
+            sftp.rename(source, target)  # works when the target does not exist yet
+            return
+        except IOError:
+            if not self.file_exists(target):
+                raise
+        backup = target + '.old'
+        sftp.rename(target, backup)
+        try:
+            sftp.rename(source, target)
+        except Exception:
+            sftp.rename(backup, target)
+            raise
+        sftp.remove(backup)
+
     def upload_file(self, local_path: str, remote_path: str,
-                    progress_callback: Optional[ProgressCallback] = None) -> bool:
+                    progress_callback: Optional[ProgressCallback] = None,
+                    cancel_event: Optional[threading.Event] = None) -> bool:
         """
         Upload file to remote server
 
@@ -215,15 +269,17 @@ class SFTPHandler:
             local_path: Local file path
             remote_path: Remote destination path (POSIX style)
             progress_callback: Optional callback(sent_bytes, total_bytes)
+            cancel_event: Set it from another thread to cancel the transfer
 
         Returns:
-            True if upload successful, False otherwise
+            True if upload successful, False otherwise (see last_error;
+            CANCELLED when it was cancelled)
         """
+        self.last_error = ""
         try:
             sftp = self._require_connection()
             if not os.path.isfile(local_path):
-                self.logger.error(f"Local file not found: {local_path}")
-                return False
+                raise FileNotFoundError(f"Local file not found: {local_path}")
 
             remote_path = remote_path.replace('\\', '/')
             if remote_path.endswith('/'):
@@ -233,16 +289,35 @@ class SFTPHandler:
 
             file_size = os.path.getsize(local_path)
             self.logger.info(f"Uploading {local_path} to {remote_path} ({file_size} bytes)")
-            sftp.put(local_path, remote_path, callback=progress_callback)
+            temp_path = remote_path + '.part' if self.atomic_uploads else remote_path
+            try:
+                # confirm=True (paramiko's default) checks the remote size afterwards
+                sftp.put(local_path, temp_path,
+                         callback=self._progress(progress_callback, cancel_event), confirm=True)
+                if self.atomic_uploads:
+                    self._replace_remote(sftp, temp_path, remote_path)
+            except BaseException:
+                if self.atomic_uploads:
+                    try:
+                        sftp.remove(temp_path)
+                    except Exception:
+                        pass
+                raise
             self.logger.info(f"Upload completed: {remote_path}")
             return True
 
+        except TransferCancelled:
+            self.last_error = CANCELLED
+            self.logger.warning(f"Upload cancelled: {remote_path}")
+            return False
         except Exception as e:
-            self.logger.error(f"Upload failed: {e}")
+            self.last_error = str(e) or e.__class__.__name__
+            self.logger.error(f"Upload failed: {self.last_error}")
             return False
 
     def download_file(self, remote_path: str, local_path: str,
-                      progress_callback: Optional[ProgressCallback] = None) -> bool:
+                      progress_callback: Optional[ProgressCallback] = None,
+                      cancel_event: Optional[threading.Event] = None) -> bool:
         """
         Download file from remote server
 
@@ -250,10 +325,13 @@ class SFTPHandler:
             remote_path: Remote file path (POSIX style)
             local_path: Local destination path; an existing directory keeps the remote name
             progress_callback: Optional callback(received_bytes, total_bytes)
+            cancel_event: Set it from another thread to cancel the transfer
 
         Returns:
-            True if download successful, False otherwise
+            True if download successful, False otherwise (see last_error;
+            CANCELLED when it was cancelled)
         """
+        self.last_error = ""
         try:
             sftp = self._require_connection()
             remote_path = remote_path.replace('\\', '/')
@@ -266,10 +344,12 @@ class SFTPHandler:
 
             self.logger.info(f"Downloading {remote_path} to {local_path}")
             # Download to a temporary name so a failed transfer never leaves a
-            # truncated file where a good one is expected.
+            # truncated file where a good one is expected. paramiko's get()
+            # raises on a size mismatch.
             partial = local_path + '.part'
             try:
-                sftp.get(remote_path, partial, callback=progress_callback)
+                sftp.get(remote_path, partial,
+                         callback=self._progress(progress_callback, cancel_event))
                 os.replace(partial, local_path)
             finally:
                 if os.path.exists(partial):
@@ -278,8 +358,13 @@ class SFTPHandler:
             self.logger.info(f"Download completed: {local_path}")
             return True
 
+        except TransferCancelled:
+            self.last_error = CANCELLED
+            self.logger.warning(f"Download cancelled: {remote_path}")
+            return False
         except Exception as e:
-            self.logger.error(f"Download failed: {e}")
+            self.last_error = str(e) or e.__class__.__name__
+            self.logger.error(f"Download failed: {self.last_error}")
             return False
 
     def delete_file(self, remote_path: str) -> bool:
@@ -292,13 +377,15 @@ class SFTPHandler:
         Returns:
             True if deletion successful, False otherwise
         """
+        self.last_error = ""
         try:
             self._require_connection().remove(remote_path.replace('\\', '/'))
             self.logger.info(f"Deleted: {remote_path}")
             return True
 
         except Exception as e:
-            self.logger.error(f"Deletion failed: {e}")
+            self.last_error = str(e) or e.__class__.__name__
+            self.logger.error(f"Deletion failed: {self.last_error}")
             return False
 
     def list_files(self, remote_path: str) -> List[str]:

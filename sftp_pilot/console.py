@@ -7,21 +7,48 @@ Modified: Oct-18-2026
 """
 
 import logging
+import signal
+import threading
 import uuid
+from contextlib import contextmanager
 from datetime import datetime, timedelta
-from typing import Optional
+from typing import Iterator, Optional
 
 from .config_manager import ConfigManager
 from .runner import make_task_executor
 from .scheduler import ScheduledTask, TaskScheduler, TaskType
-from .sftp_handler import SFTPHandler
+from .sftp_handler import CANCELLED, SFTPHandler
 
 
 def _progress_printer(verb: str):
     def callback(done: int, total: int) -> None:
         percent = (done / total * 100) if total else 100.0
-        print(f"\r{verb}: {percent:5.1f}% ({done}/{total} bytes)", end='', flush=True)
+        print(f"\r{verb}: {percent:5.1f}% ({done}/{total} bytes)  Ctrl+C cancels", end='', flush=True)
     return callback
+
+
+@contextmanager
+def _ctrl_c_cancels() -> Iterator[threading.Event]:
+    """
+    During a transfer, Ctrl+C sets an event the transfer checks between
+    chunks, instead of raising KeyboardInterrupt somewhere inside paramiko
+    (which could leave the SFTP channel mid-request).
+    """
+    cancel = threading.Event()
+    previous = signal.signal(signal.SIGINT, lambda *_: cancel.set())
+    try:
+        yield cancel
+    finally:
+        signal.signal(signal.SIGINT, previous)
+
+
+def _report(ok: bool, handler: SFTPHandler, what: str) -> None:
+    if ok:
+        print(f"\nOK: {what} completed")
+    elif handler.last_error == CANCELLED:
+        print(f"\nCancelled: {what} stopped, nothing was left half-written")
+    else:
+        print(f"\nFAILED: {what} failed: {handler.last_error}")
 
 
 def _ask_int(prompt: str, default: int, minimum: int = 0) -> Optional[int]:
@@ -54,7 +81,7 @@ class ConsoleInterface:
         self.tasks_file = tasks_file
         self.config_manager: Optional[ConfigManager] = None
         self.sftp_handler: Optional[SFTPHandler] = None
-        self.scheduler = TaskScheduler(tasks_file)
+        self.scheduler = TaskScheduler(tasks_file, runner="console")
         self.running = True
         self.logger = logging.getLogger(__name__)
 
@@ -77,7 +104,10 @@ class ConsoleInterface:
             print(f"Warning: Could not load configuration file {self.config_path}")
 
         if self.config_manager:
-            self.scheduler.check_interval = self.config_manager.get_scheduling_config()['check_interval']
+            sched_cfg = self.config_manager.get_scheduling_config()
+            self.scheduler.check_interval = sched_cfg['check_interval']
+            self.scheduler.retries = sched_cfg['retries']
+            self.scheduler.retry_delay = sched_cfg['retry_delay']
             self.scheduler.set_task_executor(
                 make_task_executor(self.config_manager.get_connection_details)
             )
@@ -197,10 +227,9 @@ class ConsoleInterface:
             remote_path += '/'
 
         print(f"\nUploading {local_path} to {remote_path}...")
-        if handler.upload_file(local_path, remote_path, _progress_printer("Uploading")):
-            print("\nOK: upload completed")
-        else:
-            print("\nFAILED: upload failed (see log)")
+        with _ctrl_c_cancels() as cancel:
+            ok = handler.upload_file(local_path, remote_path, _progress_printer("Uploading"), cancel)
+        _report(ok, handler, "upload")
 
     def download_file(self):
         """Download file from server"""
@@ -218,10 +247,9 @@ class ConsoleInterface:
             return
 
         print(f"\nDownloading {remote_path} to {local_path}...")
-        if handler.download_file(remote_path, local_path, _progress_printer("Downloading")):
-            print("\nOK: download completed")
-        else:
-            print("\nFAILED: download failed (see log)")
+        with _ctrl_c_cancels() as cancel:
+            ok = handler.download_file(remote_path, local_path, _progress_printer("Downloading"), cancel)
+        _report(ok, handler, "download")
 
     def delete_file(self):
         """Delete file from server"""

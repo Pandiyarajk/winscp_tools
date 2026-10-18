@@ -75,11 +75,31 @@ class ConfigManager:
             'private_key_passphrase': os.environ.get(PASSPHRASE_ENV)
             or self.config.get('DEFAULT', 'private_key_passphrase', fallback=''),
             'host_key_policy': policy,
-            'known_hosts_file': os.path.expanduser(
+            'known_hosts_file': self.resolve(
                 self.config.get('DEFAULT', 'known_hosts_file', fallback='known_hosts')
             ),
             'timeout': self.config.getfloat('DEFAULT', 'timeout', fallback=30.0),
+            'atomic_uploads': self.config.getboolean('DEFAULT', 'atomic_uploads', fallback=True),
         }
+
+    def resolve(self, path: str) -> str:
+        """
+        Resolve a path from the config against the config file's folder, so it
+        does not depend on the working directory (Task Scheduler starts in
+        System32, cron in the home folder).
+
+        Args:
+            path: Path as written in the config ('' stays '')
+
+        Returns:
+            An absolute path, or '' for an empty value
+        """
+        if not path:
+            return ''
+        path = os.path.expanduser(path)
+        if os.path.isabs(path):
+            return path
+        return os.path.join(os.path.dirname(os.path.abspath(self.config_path)), path)
 
     def get_paths(self) -> Dict[str, str]:
         """Get path configurations"""
@@ -93,12 +113,14 @@ class ConfigManager:
         return {
             'enabled': self.config.getboolean('SCHEDULING', 'enabled', fallback=True),
             'check_interval': max(1, self.config.getint('SCHEDULING', 'check_interval', fallback=60)),
+            'retries': max(0, self.config.getint('SCHEDULING', 'retries', fallback=3)),
+            'retry_delay': max(1, self.config.getint('SCHEDULING', 'retry_delay', fallback=60)),
         }
 
     def get_logging_config(self) -> Dict[str, str]:
         """Get logging configuration"""
         return {
-            'log_file': self.config.get('LOGGING', 'log_file', fallback='sftp_pilot.log'),
+            'log_file': self.resolve(self.config.get('LOGGING', 'log_file', fallback='sftp_pilot.log')),
             'log_level': self.config.get('LOGGING', 'log_level', fallback='INFO').upper(),
         }
 
